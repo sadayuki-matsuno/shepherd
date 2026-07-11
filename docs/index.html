@@ -82,12 +82,12 @@
     <h1 lang="ja">ターミナルではなく、群れを見る。</h1>
     <p class="lede" lang="en">
       Shepherd is a floating, always-on-top macOS HUD that watches every Claude Code
-      session on your machine — zellij panes, bare terminals, background workers.
+      session on your machine — zellij panes, VS Code terminals, bare terminals, background workers.
       The moment an agent needs you, you know. Zero config, no hooks.
     </p>
     <p class="lede" lang="ja">
-      Shepherd は、このマシンで動くすべての Claude Code セッション — zellij ペイン・素のターミナル・
-      バックグラウンドワーカー — を横断監視する、常時最前面のフローティング macOS HUD です。
+      Shepherd は、このマシンで動くすべての Claude Code セッション — zellij ペイン・VS Code のターミナル・
+      素のターミナル・バックグラウンドワーカー — を横断監視する、常時最前面のフローティング macOS HUD です。
       エージェントがあなたを必要とした瞬間に気づけます。設定ゼロ・フック不要。
     </p>
     <p>
@@ -163,7 +163,7 @@
         </tr>
         <tr>
           <td>ps -wwEp &lt;pid&gt;</td>
-          <td>The session's environment: which zellij pane it lives in, and the <em>SHEPHERD_PARENT_SESSION_ID</em> its parent exported — how child sessions nest.</td>
+          <td>The session's environment: which zellij pane or VS Code window it lives in, and the <em>SHEPHERD_PARENT_SESSION_ID</em> its parent exported — how child sessions nest.</td>
         </tr>
         <tr>
           <td>git / gh</td>
@@ -192,7 +192,7 @@
         </tr>
         <tr>
           <td>ps -wwEp &lt;pid&gt;</td>
-          <td>セッションの環境変数: どの zellij ペインに居るか、親が export した <em>SHEPHERD_PARENT_SESSION_ID</em> — 子セッションがネストする仕組み。</td>
+          <td>セッションの環境変数: どの zellij ペイン／VS Code ウィンドウに居るか、親が export した <em>SHEPHERD_PARENT_SESSION_ID</em> — 子セッションがネストする仕組み。</td>
         </tr>
         <tr>
           <td>git / gh</td>

@@ -85,8 +85,11 @@ func runCommandsTests() {
         let env = processEnvironment(pid: ProcessInfo.processInfo.processIdentifier)
         expectEq(env["HOME"], NSHomeDirectory(), "our own env comes back verbatim")
         expect(env["PATH"] != nil, "and the other inherited vars are there too")
-        expect(env.keys.allSatisfy { $0.allSatisfy { $0.isUppercase || $0.isNumber || $0 == "_" } },
-               "only UPPER_SNAKE tokens parse — the command line's own words are skipped")
+        // Mixed-case keys are admitted on purpose — __CFBundleIdentifier is how a VSCode-family
+        // session names its editor (2026-07-11) — but a key never contains anything beyond
+        // letters/digits/underscore, which is what skips `--flag=x` command-line tokens.
+        expect(env.keys.allSatisfy { $0.allSatisfy { $0.isLetter || $0.isNumber || $0 == "_" } },
+               "keys are letter/digit/underscore tokens — the command line's own words are skipped")
         expectEq(processEnvironment(pid: 999_999), [:], "a dead pid degrades to empty, never crashes")
     }
 
