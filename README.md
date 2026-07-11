@@ -32,12 +32,24 @@ Shepherd sits in the corner of your screen and shows every Claude Code session o
 
 ## Install
 
+### Homebrew
+
+```sh
+brew install --cask sadayuki-matsuno/tap/shepherd
+```
+
+> The prebuilt app is ad-hoc signed (no Apple Developer ID yet), so macOS may block the first launch — right-click Shepherd.app → Open once, or add `--no-quarantine` to the install. Building from source avoids this entirely.
+
+### From source
+
 ```sh
 git clone https://github.com/sadayuki-matsuno/shepherd.git
 cd shepherd
 ./build.sh          # builds + installs /Applications/Shepherd.app
 open -a Shepherd
 ```
+
+A prebuilt zip is also attached to each [GitHub Release](https://github.com/sadayuki-matsuno/shepherd/releases).
 
 ## No hooks, no configuration
 

@@ -92,12 +92,37 @@
     <p lang="en">No Xcode project, no SwiftPM, no runtime dependencies — <code>build.sh</code> is a plain <code>swiftc</code> invocation.</p>
     <p lang="ja">Xcode プロジェクトなし、SwiftPM なし、実行時依存なし — <code>build.sh</code> は素の <code>swiftc</code> 呼び出しです。</p>
 
-    <h2 lang="en">Build &amp; run</h2>
-    <h2 lang="ja">ビルドと起動</h2>
+    <h2 lang="en">Homebrew</h2>
+    <h2 lang="ja">Homebrew でインストール</h2>
+    <pre><code><span class="p">$</span> brew install --cask sadayuki-matsuno/tap/shepherd</code></pre>
+    <p class="note warn" lang="en">
+      The prebuilt app is ad-hoc signed (no Apple Developer ID yet), so macOS may block the first
+      launch. Right-click Shepherd.app → Open once, or install with
+      <code>brew install --cask --no-quarantine sadayuki-matsuno/tap/shepherd</code>.
+      Building from source (below) avoids this entirely.
+    </p>
+    <p class="note warn" lang="ja">
+      配布バイナリは ad-hoc 署名（Apple Developer ID 未取得）のため、初回起動時に macOS にブロック
+      されることがあります。Shepherd.app を右クリック → 開く を一度行うか、
+      <code>brew install --cask --no-quarantine sadayuki-matsuno/tap/shepherd</code> でインストール
+      してください。下記のソースビルドならこの問題はありません。
+    </p>
+
+    <h2 lang="en">Build from source</h2>
+    <h2 lang="ja">ソースからビルド</h2>
     <pre><code><span class="p">$</span> git clone https://github.com/sadayuki-matsuno/shepherd.git
 <span class="p">$</span> cd shepherd
 <span class="p">$</span> ./build.sh          <span class="c"># builds &amp; installs /Applications/Shepherd.app</span>
 <span class="p">$</span> open -a Shepherd</code></pre>
+    <p lang="en">
+      A prebuilt zip is also attached to each
+      <a href="https://github.com/sadayuki-matsuno/shepherd/releases">GitHub Release</a>
+      (same Gatekeeper note applies: right-click → Open on first launch).
+    </p>
+    <p lang="ja">
+      ビルド済み zip は各 <a href="https://github.com/sadayuki-matsuno/shepherd/releases">GitHub Release</a>
+      にも添付されています（Gatekeeper の注意は同じ: 初回は右クリック → 開く）。
+    </p>
     <p lang="en">
       The HUD appears in the corner of your screen, floating above every window and Space.
       Drag it anywhere — the position is remembered. There is no Dock icon; quit from the ⚙ menu.
