@@ -7,7 +7,7 @@
 A floating, always-on-top HUD for [Claude Code](https://claude.com/claude-code) — watch your flock of coding agents without opening a terminal.
 
 <p align="center">
-  <img src="docs/assets/demo-en.gif" width="760" alt="The Shepherd board watching four Claude Code sessions: one card turns orange the moment its agent blocks on a question, floats to the top with the question preview, then goes back to green once answered">
+  <img src="docs/assets/demo-en.gif" width="760" alt="The Shepherd board watching a flock of Claude Code sessions: one card turns orange the moment its agent blocks on a question and shows the question preview, then goes back to green once answered">
 </p>
 
 ```sh
