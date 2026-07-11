@@ -6,13 +6,19 @@
 
 A floating, always-on-top HUD for [Claude Code](https://claude.com/claude-code) — watch your flock of coding agents without opening a terminal.
 
+<p align="center">
+  <img src="docs/assets/demo-en.gif" width="760" alt="The Shepherd board watching a flock of Claude Code sessions: one card turns orange the moment its agent blocks on a question and shows the question preview, then goes back to green once answered">
+</p>
+
+```sh
+brew install --cask sadayuki-matsuno/tap/shepherd
+```
+
+> Gatekeeper may block the first launch (ad-hoc signature) — see [Install](#install).
+
 Shepherd sits in the corner of your screen and shows every Claude Code session on the machine — zellij panes, VS Code integrated terminals, bare terminals and cc-daemon background workers alike: what it's doing, which repo/branch it's on, how many files it has changed, and which issue/PR it belongs to. Agents that need your input are impossible to miss.
 
 **Docs:** [sadayuki-matsuno.github.io/shepherd](https://sadayuki-matsuno.github.io/shepherd/) — install, reading the board, actions, configuration · **Guide:** [The herding playbook](https://sadayuki-matsuno.github.io/shepherd/playbook.html) — vehicles, model tiering, and reading the board.
-
-<p align="center">
-  <img src="docs/assets/hud-en.png" width="760" alt="The Shepherd HUD: plan-usage bars in the header, then three repository columns — a blocked card showing its pending question in orange, working cards with permission-mode and model chips, PR/CI and Artifact badges, and a nested subagent card">
-</p>
 
 ## Features
 
@@ -24,6 +30,10 @@ Shepherd sits in the corner of your screen and shows every Claude Code session o
 - **Right-click menu** — per-card actions: reply (answer a blocked agent inline — over zellij, or over the cc-daemon control socket for a background worker; a VS Code terminal accepts no outside keystrokes, so click the card and answer in the editor instead), remote-control, capture a screen region and send it to that agent, and close (`claude stop` for a background agent, SIGTERM for an interactive one; guarded so a dirty working tree never loses uncommitted work)
 - **Drop files onto a row** — copies them to a scratch dir and sends the paths (plus an optional message) to that agent
 - **Zero deps** — plain Swift built with the Xcode Command Line Tools; no Xcode project, no packages
+
+<p align="center">
+  <img src="docs/assets/hud-en.png" width="760" alt="The Shepherd HUD: plan-usage bars in the header, then three repository columns — a blocked card showing its pending question in orange, working cards with permission-mode and model chips, PR/CI and Artifact badges, and a nested subagent card">
+</p>
 
 ## Requirements
 
