@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stream Deck — Shepherd docs</title>
+<meta name="description" content="Mirror the Shepherd board onto an Elgato Stream Deck: repo columns on keys, drill into sessions, blocked agents blink, press to jump. No plugins.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='96 101 320 320'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%238bf5cd'/%3E%3Cstop offset='1' stop-color='%2335b585'/%3E%3C/linearGradient%3E%3ClinearGradient id='h' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23f6d488'/%3E%3Cstop offset='1' stop-color='%23c98f2e'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cg transform='translate(0,-14)'%3E%3Cpath d='M 140 252 V 200 A 58 58 0 0 1 256 200' fill='none' stroke='url(%23h)' stroke-width='42' stroke-linecap='round'/%3E%3Cpath d='M 256 408 V 200 A 58 58 0 0 1 372 200 V 252' fill='none' stroke='url(%23g)' stroke-width='42' stroke-linecap='round'/%3E%3Crect x='348' y='314' width='46' height='60' rx='10' fill='%23f5c66b'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="stylesheet" href="assets/docs.css">
+<script>
+(function () {
+  var q = new URLSearchParams(location.search).get("lang");
+  var saved = null; try { saved = localStorage.getItem("shepherdLang"); } catch (e) {}
+  var lang = (q === "ja" || q === "en") ? q
+           : (saved === "ja" || saved === "en") ? saved
+           : ((navigator.language || "").toLowerCase().indexOf("ja") === 0 ? "ja" : "en");
+  document.documentElement.lang = lang;
+  addEventListener("DOMContentLoaded", function () {
+    var b = document.getElementById("lang-toggle");
+    if (!b) return;
+    var paint = function () { b.textContent = document.documentElement.lang === "ja" ? "English" : "日本語"; };
+    paint();
+    b.addEventListener("click", function () {
+      var l = document.documentElement.lang === "ja" ? "en" : "ja";
+      document.documentElement.lang = l;
+      try { localStorage.setItem("shepherdLang", l); } catch (e) {}
+      paint();
+    });
+  });
+})();
+</script>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="g-st" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8bf5cd"/><stop offset="1" stop-color="#35b585"/>
+    </linearGradient>
+    <linearGradient id="g-horn" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f6d488"/><stop offset="1" stop-color="#c98f2e"/>
+    </linearGradient>
+    <symbol id="mark" viewBox="96 101 320 320">
+      <g transform="translate(0,-14)">
+        <path d="M 140 252 V 200 A 58 58 0 0 1 256 200" fill="none" stroke="url(#g-horn)" stroke-width="42" stroke-linecap="round"/>
+        <path d="M 256 408 V 200 A 58 58 0 0 1 372 200 V 252" fill="none" stroke="url(#g-st)" stroke-width="42" stroke-linecap="round"/>
+        <rect x="348" y="314" width="46" height="60" rx="10" fill="#f5c66b"/>
+      </g>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="topbar">
+  <svg class="mark" aria-hidden="true"><use href="#mark"/></svg>
+  <span class="name">Shepherd <span>/ docs</span></span>
+  <a class="gh" href="https://github.com/sadayuki-matsuno/shepherd">GitHub ↗</a>
+  <button class="langtoggle" id="lang-toggle" type="button">日本語</button>
+</div>
+
+<div class="layout">
+  <nav class="sidebar">
+    <div class="group"><span lang="en">Getting started</span><span lang="ja">はじめに</span></div>
+    <a href="index.html"><span lang="en">Overview</span><span lang="ja">概要</span></a>
+    <a href="install.html"><span lang="en">Install</span><span lang="ja">インストール</span></a>
+    <div class="group"><span lang="en">Using Shepherd</span><span lang="ja">使い方</span></div>
+    <a href="board.html"><span lang="en">Reading the board</span><span lang="ja">盤面の読み方</span></a>
+    <a href="actions.html"><span lang="en">Actions</span><span lang="ja">操作</span></a>
+    <a href="configuration.html"><span lang="en">Configuration</span><span lang="ja">設定</span></a>
+    <a href="stream-deck.html" class="active">Stream Deck</a>
+    <div class="group"><span lang="en">Guides</span><span lang="ja">ガイド</span></div>
+    <a href="playbook.html"><span lang="en">The herding playbook</span><span lang="ja">群れの導き方</span></a>
+  </nav>
+
+  <main>
+    <div class="eyebrow">using shepherd</div>
+    <h1>Stream Deck</h1>
+    <p class="lede" lang="en">
+      Shepherd can mirror the board onto an <a href="https://www.elgato.com/stream-deck">Elgato Stream Deck</a> —
+      a physical status panel you glance at and press to jump. Built in: Shepherd talks to the device
+      directly over USB HID. No Elgato plugins, no companion app.
+    </p>
+    <p class="lede" lang="ja">
+      Shepherd は盤面を <a href="https://www.elgato.com/stream-deck">Elgato Stream Deck</a> —
+      ひと目で確認し、押せばジャンプできる物理ステータスパネル — にミラーできます。組み込み機能なので、
+      Shepherd はデバイスと USB HID で直接会話します。Elgato のプラグインも専用アプリも不要です。
+    </p>
+
+    <h2 lang="en">How the keys are laid out</h2>
+    <h2 lang="ja">キーの並び方</h2>
+    <ul lang="en">
+      <li><strong>Top screen: one key per repository column.</strong> Repo name, session count, and one status-colored dot per session — the column's health at a glance. Key 0 shows the Shepherd logo.</li>
+      <li><strong>Press a repo key to drill in:</strong> that column's sessions, one key each (status color, title, <code>#issue</code>), in the same urgency order as the HUD. Key 0 goes back.</li>
+      <li><strong>Blocked sessions blink</strong> — on the session key, and on the repo key holding one, so a waiting agent is visible even from the top screen.</li>
+      <li><strong>Press a session key to jump</strong> — same as clicking its card in the HUD.</li>
+    </ul>
+    <ul lang="ja">
+      <li><strong>トップ画面: リポジトリ列ごとに1キー。</strong>リポジトリ名・セッション数、そしてセッションごとのステータスドットが並び、その列の状態がひと目で分かります。キー0には Shepherd のロゴが表示されます。</li>
+      <li><strong>リポジトリキーを押すと掘り込みます:</strong> その列のセッションが1つずつキーに割り当てられ（ステータス色・タイトル・<code>#issue</code>）、HUD と同じ緊急度順で並びます。キー0で戻ります。</li>
+      <li><strong>応答待ちのセッションは点滅します</strong> — セッションキー本体と、それを含むリポジトリキーの両方が点滅するので、トップ画面からでも応答待ちのエージェントに気づけます。</li>
+      <li><strong>セッションキーを押せばジャンプします</strong> — HUD でカードをクリックするのと同じです。</li>
+    </ul>
+
+    <h2 lang="en">Turning it on</h2>
+    <h2 lang="ja">有効化</h2>
+    <p lang="en">
+      Click <strong>⚙</strong> in the HUD header and choose <strong>Use Stream Deck</strong>.
+      The choice is remembered and the deck reconnects automatically on relaunch.
+    </p>
+    <p lang="ja">
+      HUD ヘッダーの <strong>⚙</strong> をクリックして<strong>「Use Stream Deck」</strong>を選んでください。
+      この選択は記憶され、再起動時にデッキは自動的に再接続します。
+    </p>
+    <div class="note warn" lang="en">
+      The official <strong>Elgato Stream Deck app must be quit first</strong> — it and Shepherd can't share
+      the device. Shepherd refuses to take over while the Elgato app is running.
+    </div>
+    <div class="note warn" lang="ja">
+      <strong>公式の Elgato Stream Deck アプリを先に終了する必要があります</strong> — Shepherd とデバイスを
+      共有できないためです。Elgato アプリが起動している間、Shepherd はデバイスの制御を拒否します。
+    </div>
+
+    <h2 lang="en">Devices</h2>
+    <h2 lang="ja">対応デバイス</h2>
+    <ul lang="en">
+      <li>Tested on <strong>Stream Deck MK.2</strong> (15 keys); <strong>Original V2</strong> speaks the same protocol.</li>
+      <li>Several decks connected? Shepherd takes the first. Pin one by serial:<br>
+      <code>defaults write com.sadayuki-matsuno.shepherd deckSerial &lt;serial&gt;</code></li>
+      <li>Unplugging is fine — Shepherd drops the deck with a note in the header and reattaches when it's back.</li>
+    </ul>
+    <ul lang="ja">
+      <li><strong>Stream Deck MK.2</strong>（15キー）で動作確認済み。<strong>Original V2</strong> も同じプロトコルを話します。</li>
+      <li>複数のデッキを接続した場合、Shepherd は最初の1台を使います。シリアル番号で固定するには:<br>
+      <code>defaults write com.sadayuki-matsuno.shepherd deckSerial &lt;serial&gt;</code></li>
+      <li>抜いても問題ありません — Shepherd はヘッダーに注記を出してデッキを切り離し、戻ってくれば再接続します。</li>
+    </ul>
+
+    <div class="pagenav">
+      <a href="configuration.html"><span lang="en">← Configuration</span><span lang="ja">← 設定</span></a>
+      <a href="playbook.html"><span lang="en">The herding playbook →</span><span lang="ja">群れの導き方 →</span></a>
+    </div>
+  </main>
+</div>
+
+</body>
+</html>

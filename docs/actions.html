@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Actions — Shepherd docs</title>
+<meta name="description" content="Everything you can do from a Shepherd card: jump into sessions, reply to blocked agents, drop files, capture screens, spawn worktree sessions, close safely.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='96 101 320 320'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%238bf5cd'/%3E%3Cstop offset='1' stop-color='%2335b585'/%3E%3C/linearGradient%3E%3ClinearGradient id='h' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23f6d488'/%3E%3Cstop offset='1' stop-color='%23c98f2e'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cg transform='translate(0,-14)'%3E%3Cpath d='M 140 252 V 200 A 58 58 0 0 1 256 200' fill='none' stroke='url(%23h)' stroke-width='42' stroke-linecap='round'/%3E%3Cpath d='M 256 408 V 200 A 58 58 0 0 1 372 200 V 252' fill='none' stroke='url(%23g)' stroke-width='42' stroke-linecap='round'/%3E%3Crect x='348' y='314' width='46' height='60' rx='10' fill='%23f5c66b'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="stylesheet" href="assets/docs.css">
+<script>
+(function () {
+  var q = new URLSearchParams(location.search).get("lang");
+  var saved = null; try { saved = localStorage.getItem("shepherdLang"); } catch (e) {}
+  var lang = (q === "ja" || q === "en") ? q
+           : (saved === "ja" || saved === "en") ? saved
+           : ((navigator.language || "").toLowerCase().indexOf("ja") === 0 ? "ja" : "en");
+  document.documentElement.lang = lang;
+  addEventListener("DOMContentLoaded", function () {
+    var b = document.getElementById("lang-toggle");
+    if (!b) return;
+    var paint = function () { b.textContent = document.documentElement.lang === "ja" ? "English" : "日本語"; };
+    paint();
+    b.addEventListener("click", function () {
+      var l = document.documentElement.lang === "ja" ? "en" : "ja";
+      document.documentElement.lang = l;
+      try { localStorage.setItem("shepherdLang", l); } catch (e) {}
+      paint();
+    });
+  });
+})();
+</script>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="g-st" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8bf5cd"/><stop offset="1" stop-color="#35b585"/>
+    </linearGradient>
+    <linearGradient id="g-horn" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f6d488"/><stop offset="1" stop-color="#c98f2e"/>
+    </linearGradient>
+    <symbol id="mark" viewBox="96 101 320 320">
+      <g transform="translate(0,-14)">
+        <path d="M 140 252 V 200 A 58 58 0 0 1 256 200" fill="none" stroke="url(#g-horn)" stroke-width="42" stroke-linecap="round"/>
+        <path d="M 256 408 V 200 A 58 58 0 0 1 372 200 V 252" fill="none" stroke="url(#g-st)" stroke-width="42" stroke-linecap="round"/>
+        <rect x="348" y="314" width="46" height="60" rx="10" fill="#f5c66b"/>
+      </g>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="topbar">
+  <svg class="mark" aria-hidden="true"><use href="#mark"/></svg>
+  <span class="name">Shepherd <span>/ docs</span></span>
+  <a class="gh" href="https://github.com/sadayuki-matsuno/shepherd">GitHub ↗</a>
+  <button class="langtoggle" id="lang-toggle" type="button">日本語</button>
+</div>
+
+<div class="layout">
+  <nav class="sidebar">
+    <div class="group"><span lang="en">Getting started</span><span lang="ja">はじめに</span></div>
+    <a href="index.html"><span lang="en">Overview</span><span lang="ja">概要</span></a>
+    <a href="install.html"><span lang="en">Install</span><span lang="ja">インストール</span></a>
+    <div class="group"><span lang="en">Using Shepherd</span><span lang="ja">使い方</span></div>
+    <a href="board.html"><span lang="en">Reading the board</span><span lang="ja">盤面の読み方</span></a>
+    <a href="actions.html" class="active"><span lang="en">Actions</span><span lang="ja">操作</span></a>
+    <a href="configuration.html"><span lang="en">Configuration</span><span lang="ja">設定</span></a>
+    <a href="stream-deck.html">Stream Deck</a>
+    <div class="group"><span lang="en">Guides</span><span lang="ja">ガイド</span></div>
+    <a href="playbook.html"><span lang="en">The herding playbook</span><span lang="ja">群れの導き方</span></a>
+  </nav>
+
+  <main>
+    <div class="eyebrow">using shepherd</div>
+    <h1 lang="en">Actions</h1>
+    <h1 lang="ja">操作</h1>
+    <p class="lede" lang="en">
+      Click a card to go to the session. Right-click for everything else.
+      Shepherd never steals focus — it acts only when you tell it to.
+    </p>
+    <p class="lede" lang="ja">
+      カードをクリックするとそのセッションに移動します。それ以外の操作はすべて右クリックから。
+      Shepherd は決してフォーカスを奪いません — あなたが指示したときだけ動きます。
+    </p>
+
+    <h2 lang="en">Click: jump into the session</h2>
+    <h2 lang="ja">クリック: セッションへジャンプ</h2>
+    <ul lang="en">
+      <li><strong>zellij session</strong> — attaches the zellij session in your terminal and focuses the exact pane, even in a multi-pane tab.</li>
+      <li><strong>Background worker</strong> — opens its live TUI with <code>claude attach &lt;id&gt;</code> in a new terminal window. A <em>finished</em> record asks first, then reopens the session where it left off.</li>
+      <li><strong>Bare-terminal session</strong> — Shepherd can see it but can't know which window it lives in; the card says so instead of jumping.</li>
+      <li><strong>Teammate / subagent</strong> — runs inside its parent's process; there is nothing to attach to. Steer it from the parent session.</li>
+    </ul>
+    <ul lang="ja">
+      <li><strong>zellij セッション</strong> — ターミナルでその zellij セッションに attach し、マルチペインのタブでも該当ペインに正確にフォーカスします。</li>
+      <li><strong>バックグラウンドワーカー</strong> — 新しいターミナルウィンドウで <code>claude attach &lt;id&gt;</code> を実行し、ライブ TUI を開きます。<em>終了済み</em>の記録はまず確認を挟み、そのセッションを中断した場所から再開します。</li>
+      <li><strong>素のターミナルのセッション</strong> — Shepherd はその存在を認識できますが、どのウィンドウに居るかは分からないため、ジャンプせずカードにその旨を表示します。</li>
+      <li><strong>teammate / サブエージェント</strong> — 親のプロセス内で動くため、attach する対象がありません。親セッションから操作してください。</li>
+    </ul>
+
+    <h2 id="reply" lang="en">Reply to a blocked agent</h2>
+    <h2 lang="ja">応答待ちのエージェントに回答する</h2>
+    <p lang="en">
+      When a card goes orange, the question is on the card. Right-click → <strong>Reply</strong>
+      opens an inline answer box — the full question text, a copy button, and a field to type into.
+      Your answer is delivered on whatever channel the session actually listens on:
+    </p>
+    <p lang="ja">
+      カードがオレンジになると、その質問がカードに表示されます。右クリック→<strong>回答する</strong>
+      でインラインの回答ボックスが開きます — 質問文の全文、コピーボタン、入力用のフィールドが並びます。
+      回答はそのセッションが実際に受け取れるチャネルを通じて届けられます:
+    </p>
+    <ul lang="en">
+      <li>a <strong>zellij</strong> session gets keystrokes typed into its pane (works without switching windows; for multi-pane tabs a client must be attached somewhere);</li>
+      <li>a <strong>background worker</strong> gets the reply over the cc-daemon control socket — the same channel <code>claude attach</code> uses.</li>
+    </ul>
+    <ul lang="ja">
+      <li><strong>zellij</strong> セッションには、そのペインへキー入力が送られます（ウィンドウを切り替えずに動作しますが、マルチペインのタブではどこかにクライアントが attach している必要があります）;</li>
+      <li><strong>バックグラウンドワーカー</strong>には cc-daemon control socket 経由で回答が届きます — <code>claude attach</code> が使うのと同じチャネルです。</li>
+    </ul>
+    <p lang="en">After sending, the card shows <em>reply sent · waiting</em> until the agent picks it up.</p>
+    <p lang="ja">送信後、カードはエージェントが受け取るまで <em>reply sent · waiting</em> と表示します。</p>
+
+    <h2 lang="en">The right-click menu</h2>
+    <h2 lang="ja">右クリックメニュー</h2>
+    <div class="tbl-scroll" lang="en">
+      <table>
+        <tr><th>item</th><th>what it does</th></tr>
+        <tr><td>Reply</td><td>Answer a blocked agent inline (first item whenever the card is waiting).</td></tr>
+        <tr><td>Attach zellij ↗ / Attach ↗</td><td>Same as clicking the card.</td></tr>
+        <tr><td>Copy `claude attach &lt;id&gt;`</td><td>For opening a background worker in a terminal of your choosing.</td></tr>
+        <tr><td>Remote-control</td><td>Enables <code>/remote-control</code> for the session so you can drive it from another device.</td></tr>
+        <tr><td>Capture a region &amp; send</td><td>Select a screen region; the screenshot lands in the session as a file. The HUD hides itself during capture.</td></tr>
+        <tr><td>Stop background agent</td><td><code>claude stop</code> via the daemon — frees the ~600 MB a parked worker holds. Verified: the card only clears once the worker is actually gone.</td></tr>
+        <tr><td>End session</td><td>Ends an interactive session — <strong>refused while the worktree has uncommitted changes</strong>, so closing never loses work. Commit or stash first.</td></tr>
+        <tr><td>Delete record (claude rm)…</td><td>Removes a finished background record from the roster (the transcript stays on disk).</td></tr>
+        <tr><td>Reset to auto layout</td><td>Undo manual card placement (you can drag cards between columns to pin them).</td></tr>
+      </table>
+    </div>
+    <div class="tbl-scroll" lang="ja">
+      <table>
+        <tr><th>項目</th><th>できること</th></tr>
+        <tr><td>回答する</td><td>応答待ちのエージェントにインラインで回答します（カードが待機中のときは常に先頭に表示）。</td></tr>
+        <tr><td>zellij を開く ↗ / attach で開く ↗</td><td>カードをクリックしたときと同じ動作です。</td></tr>
+        <tr><td>claude attach &lt;id&gt; をコピー</td><td>好きなターミナルでバックグラウンドワーカーを開くために使います。</td></tr>
+        <tr><td>遠隔操作（/remote-control）</td><td>そのセッションで <code>/remote-control</code> を有効にし、別のデバイスから操作できるようにします。</td></tr>
+        <tr><td>範囲を撮影して送る</td><td>画面の範囲を選択すると、そのスクリーンショットがファイルとしてセッションに届きます。撮影中は HUD 自身を隠します。</td></tr>
+        <tr><td>バックグラウンドを停止（claude stop）</td><td>daemon 経由で <code>claude stop</code> を実行します — 待機中のワーカーが確保している約600MBを解放します。ワーカーが実際に消えたことを確認してからカードを消します。</td></tr>
+        <tr><td>セッションを終了する</td><td>対話型セッションを終了します — <strong>worktree に未コミットの変更がある間は拒否される</strong>ため、作業を失うことはありません。先にコミットまたは stash してください。</td></tr>
+        <tr><td>記録を削除（claude rm）…</td><td>終了済みのバックグラウンド記録を名簿から削除します（transcript はディスクに残ります）。</td></tr>
+        <tr><td>自動配置に戻す</td><td>手動で配置したカードを元に戻します（カードは列間にドラッグして固定できます）。</td></tr>
+      </table>
+    </div>
+
+    <h2 lang="en">Drop files onto a card</h2>
+    <h2 lang="ja">カードにファイルをドロップする</h2>
+    <p lang="en">
+      Drag any file from Finder onto a card. Shepherd copies it to a scratch directory, asks for an
+      optional message, and sends the path(s) into that session — the agent can read the file
+      immediately. The card shows a 📎 <em>sent</em> mark right after.
+    </p>
+    <p lang="ja">
+      Finder から任意のファイルをカードへドラッグします。Shepherd はそれをスクラッチディレクトリに
+      コピーし、任意のメッセージを尋ねてから、そのパスをセッションへ送ります — エージェントはすぐに
+      ファイルを読めます。直後にカードには 📎 <em>sent</em> マークが表示されます。
+    </p>
+
+    <h2 lang="en">＋ New session, in a fresh worktree</h2>
+    <h2 lang="ja">＋新規セッション（新しい worktree で）</h2>
+    <p lang="en">
+      The ＋ button in the header opens a repository picker (your <code>ghq</code> base directories),
+      creates an isolated <code>git worktree</code> for the branch name you give it, and launches
+      <code>claude</code> there in a new terminal window. Parallel work without two agents stepping
+      on one checkout.
+    </p>
+    <p lang="ja">
+      ヘッダーの＋ボタンはリポジトリピッカー（あなたの <code>ghq</code> のベースディレクトリ）を開き、
+      指定したブランチ名で隔離された <code>git worktree</code> を作成し、新しいターミナルウィンドウで
+      そこに <code>claude</code> を起動します。2つのエージェントが同じチェックアウトを踏み合うことなく
+      並列作業できます。
+    </p>
+
+    <h2 lang="en">HUD size &amp; placement</h2>
+    <h2 lang="ja">HUD のサイズと配置</h2>
+    <ul lang="en">
+      <li><strong>⚙ → HUD size</strong> — <em>auto</em> (fits content), fixed 1 / 2 / 3-column presets, or <em>full display</em>. Fixed sizes scroll vertically.</li>
+      <li><strong>Drag anywhere</strong> — the position is remembered per display.</li>
+      <li><strong>Minimize</strong> — collapses to a small strip showing just the count pills; blocked agents still surface.</li>
+      <li><strong>? button</strong> — the in-app legend for every symbol (the same content as <a href="board.html">Reading the board</a>).</li>
+    </ul>
+    <ul lang="ja">
+      <li><strong>⚙ → HUD サイズ</strong> — <em>auto</em>（内容に合わせる）、固定の1/2/3列プリセット、または <em>full display</em>（画面全面）。固定サイズは縦方向にスクロールします。</li>
+      <li><strong>どこからでもドラッグ可能</strong> — 位置はディスプレイごとに記憶されます。</li>
+      <li><strong>最小化</strong> — 件数ピルだけを示す小さなストリップに折りたたまれます。応答待ちのエージェントは折りたたんでも表示されます。</li>
+      <li><strong>?ボタン</strong> — すべてのシンボルのアプリ内凡例（<a href="board.html">盤面の読み方</a>と同じ内容）。</li>
+    </ul>
+
+    <div class="pagenav">
+      <a href="board.html"><span lang="en">← Reading the board</span><span lang="ja">← 盤面の読み方</span></a>
+      <a href="configuration.html"><span lang="en">Configuration →</span><span lang="ja">設定 →</span></a>
+    </div>
+  </main>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Install — Shepherd docs</title>
+<meta name="description" content="Install Shepherd: clone, build with plain swiftc, done. Requirements, first launch, upgrading from the hook version.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='96 101 320 320'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%238bf5cd'/%3E%3Cstop offset='1' stop-color='%2335b585'/%3E%3C/linearGradient%3E%3ClinearGradient id='h' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23f6d488'/%3E%3Cstop offset='1' stop-color='%23c98f2e'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cg transform='translate(0,-14)'%3E%3Cpath d='M 140 252 V 200 A 58 58 0 0 1 256 200' fill='none' stroke='url(%23h)' stroke-width='42' stroke-linecap='round'/%3E%3Cpath d='M 256 408 V 200 A 58 58 0 0 1 372 200 V 252' fill='none' stroke='url(%23g)' stroke-width='42' stroke-linecap='round'/%3E%3Crect x='348' y='314' width='46' height='60' rx='10' fill='%23f5c66b'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="stylesheet" href="assets/docs.css">
+<script>
+(function () {
+  var q = new URLSearchParams(location.search).get("lang");
+  var saved = null; try { saved = localStorage.getItem("shepherdLang"); } catch (e) {}
+  var lang = (q === "ja" || q === "en") ? q
+           : (saved === "ja" || saved === "en") ? saved
+           : ((navigator.language || "").toLowerCase().indexOf("ja") === 0 ? "ja" : "en");
+  document.documentElement.lang = lang;
+  addEventListener("DOMContentLoaded", function () {
+    var b = document.getElementById("lang-toggle");
+    if (!b) return;
+    var paint = function () { b.textContent = document.documentElement.lang === "ja" ? "English" : "日本語"; };
+    paint();
+    b.addEventListener("click", function () {
+      var l = document.documentElement.lang === "ja" ? "en" : "ja";
+      document.documentElement.lang = l;
+      try { localStorage.setItem("shepherdLang", l); } catch (e) {}
+      paint();
+    });
+  });
+})();
+</script>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="g-st" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8bf5cd"/><stop offset="1" stop-color="#35b585"/>
+    </linearGradient>
+    <linearGradient id="g-horn" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f6d488"/><stop offset="1" stop-color="#c98f2e"/>
+    </linearGradient>
+    <symbol id="mark" viewBox="96 101 320 320">
+      <g transform="translate(0,-14)">
+        <path d="M 140 252 V 200 A 58 58 0 0 1 256 200" fill="none" stroke="url(#g-horn)" stroke-width="42" stroke-linecap="round"/>
+        <path d="M 256 408 V 200 A 58 58 0 0 1 372 200 V 252" fill="none" stroke="url(#g-st)" stroke-width="42" stroke-linecap="round"/>
+        <rect x="348" y="314" width="46" height="60" rx="10" fill="#f5c66b"/>
+      </g>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="topbar">
+  <svg class="mark" aria-hidden="true"><use href="#mark"/></svg>
+  <span class="name">Shepherd <span>/ docs</span></span>
+  <a class="gh" href="https://github.com/sadayuki-matsuno/shepherd">GitHub ↗</a>
+  <button class="langtoggle" id="lang-toggle" type="button">日本語</button>
+</div>
+
+<div class="layout">
+  <nav class="sidebar">
+    <div class="group"><span lang="en">Getting started</span><span lang="ja">はじめに</span></div>
+    <a href="index.html"><span lang="en">Overview</span><span lang="ja">概要</span></a>
+    <a href="install.html" class="active"><span lang="en">Install</span><span lang="ja">インストール</span></a>
+    <div class="group"><span lang="en">Using Shepherd</span><span lang="ja">使い方</span></div>
+    <a href="board.html"><span lang="en">Reading the board</span><span lang="ja">盤面の読み方</span></a>
+    <a href="actions.html"><span lang="en">Actions</span><span lang="ja">操作</span></a>
+    <a href="configuration.html"><span lang="en">Configuration</span><span lang="ja">設定</span></a>
+    <a href="stream-deck.html">Stream Deck</a>
+    <div class="group"><span lang="en">Guides</span><span lang="ja">ガイド</span></div>
+    <a href="playbook.html"><span lang="en">The herding playbook</span><span lang="ja">群れの導き方</span></a>
+  </nav>
+
+  <main>
+    <div class="eyebrow" lang="en">getting started</div>
+    <div class="eyebrow" lang="ja">はじめに</div>
+    <h1 lang="en">Install</h1>
+    <h1 lang="ja">インストール</h1>
+
+    <h2 lang="en">Requirements</h2>
+    <h2 lang="ja">必要環境</h2>
+    <ul lang="en">
+      <li><strong>macOS 13+</strong></li>
+      <li><strong>Xcode Command Line Tools</strong> to build: <code>xcode-select --install</code></li>
+      <li>Optional: <a href="https://ghostty.org">Ghostty</a> as the preferred terminal (falls back to Terminal.app), <code>gh</code> for PR badges, an Elgato Stream Deck if you have one</li>
+    </ul>
+    <ul lang="ja">
+      <li><strong>macOS 13+</strong></li>
+      <li>ビルドに <strong>Xcode Command Line Tools</strong> が必要: <code>xcode-select --install</code></li>
+      <li>任意: 優先ターミナルとして <a href="https://ghostty.org">Ghostty</a>（無ければ Terminal.app にフォールバック）、PR バッジ用の <code>gh</code>、お持ちなら Elgato Stream Deck</li>
+    </ul>
+    <p lang="en">No Xcode project, no SwiftPM, no runtime dependencies — <code>build.sh</code> is a plain <code>swiftc</code> invocation.</p>
+    <p lang="ja">Xcode プロジェクトなし、SwiftPM なし、実行時依存なし — <code>build.sh</code> は素の <code>swiftc</code> 呼び出しです。</p>
+
+    <h2 lang="en">Build &amp; run</h2>
+    <h2 lang="ja">ビルドと起動</h2>
+    <pre><code><span class="p">$</span> git clone https://github.com/sadayuki-matsuno/shepherd.git
+<span class="p">$</span> cd shepherd
+<span class="p">$</span> ./build.sh          <span class="c"># builds &amp; installs /Applications/Shepherd.app</span>
+<span class="p">$</span> open -a Shepherd</code></pre>
+    <p lang="en">
+      The HUD appears in the corner of your screen, floating above every window and Space.
+      Drag it anywhere — the position is remembered. There is no Dock icon; quit from the ⚙ menu.
+    </p>
+    <p lang="ja">
+      HUD は画面の隅に現れ、すべてのウィンドウと Space の上にフローティング表示されます。
+      好きな場所にドラッグでき、位置は記憶されます。Dock アイコンは無く、終了は ⚙ メニューから行います。
+    </p>
+
+    <h2 lang="en">First launch</h2>
+    <h2 lang="ja">初回起動</h2>
+    <ul lang="en">
+      <li>Any Claude Code session already running shows up immediately — there is nothing to register. If the board is empty, start a <code>claude</code> session anywhere and watch the card appear.</li>
+      <li>The first time you <strong>click a card to jump</strong> into a terminal, macOS asks for an automation consent (Shepherd → Ghostty/Terminal). Allow it — that's how Shepherd focuses the right window.</li>
+      <li>To update later: <code>git pull &amp;&amp; ./build.sh</code>, then quit and relaunch Shepherd.</li>
+    </ul>
+    <ul lang="ja">
+      <li>すでに動いている Claude Code セッションはすぐに表示されます — 登録操作は不要です。盤面が空なら、どこかで <code>claude</code> セッションを起動してカードが現れるのを確認してください。</li>
+      <li>初めて<strong>カードをクリックしてターミナルへジャンプ</strong>する際、macOS が自動化の許可ダイアログ（Shepherd → Ghostty/Terminal）を表示します。許可してください — これによって Shepherd が正しいウィンドウにフォーカスできます。</li>
+      <li>後で更新するには: <code>git pull &amp;&amp; ./build.sh</code> を実行し、Shepherd を終了して再起動してください。</li>
+    </ul>
+
+    <h2 lang="en">Upgrading from a version that installed a hook</h2>
+    <h2 lang="ja">フックをインストールしていた旧版からの移行</h2>
+    <p lang="en">
+      Old versions (pre 2026-07) installed a status hook. Current Shepherd uses none — clean up the leftovers:
+    </p>
+    <p lang="ja">
+      旧版（2026-07 より前）はステータスフックをインストールしていました。現行の Shepherd はフックを使いません — 残骸を掃除してください:
+    </p>
+    <ul lang="en">
+      <li>Delete <code>~/.claude/hooks/shepherd-agent-status.sh</code> and <code>~/.claude/agent-status/</code></li>
+      <li>Remove the <code>shepherd-agent-status.sh</code> entries from the <code>hooks</code> section of <code>~/.claude/settings.json</code></li>
+    </ul>
+    <ul lang="ja">
+      <li><code>~/.claude/hooks/shepherd-agent-status.sh</code> と <code>~/.claude/agent-status/</code> を削除する</li>
+      <li><code>~/.claude/settings.json</code> の <code>hooks</code> セクションから <code>shepherd-agent-status.sh</code> の登録を削除する</li>
+    </ul>
+
+    <h2 lang="en">Uninstall</h2>
+    <h2 lang="ja">アンインストール</h2>
+    <pre><code><span class="p">$</span> pkill -x Shepherd
+<span class="p">$</span> rm -rf /Applications/Shepherd.app
+<span class="p">$</span> defaults delete com.sadayuki-matsuno.shepherd   <span class="c"># optional: forget position &amp; settings</span></code></pre>
+    <p lang="en">Shepherd writes nothing else to your machine.</p>
+    <p lang="ja">Shepherd はこれ以外、あなたのマシンに何も書き込みません。</p>
+
+    <div class="pagenav">
+      <a href="index.html"><span lang="en">← Overview</span><span lang="ja">← 概要</span></a>
+      <a href="board.html"><span lang="en">Reading the board →</span><span lang="ja">盤面の読み方 →</span></a>
+    </div>
+  </main>
+</div>
+
+</body>
+</html>

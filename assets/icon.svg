@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Shepherd app icon: two-tone Aries glyph — teal shepherd's crook + gold horn + amber cursor -->
+  <!-- 1024 canvas, 824px rounded-rect artwork centered (Apple icon grid) -->
+  <defs>
+    <linearGradient id="g-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#242b4d"/><stop offset="1" stop-color="#0a0c16"/>
+    </linearGradient>
+    <linearGradient id="g-st" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8bf5cd"/><stop offset="1" stop-color="#35b585"/>
+    </linearGradient>
+    <linearGradient id="g-horn" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f6d488"/><stop offset="1" stop-color="#c98f2e"/>
+    </linearGradient>
+    <radialGradient id="g-halo" cx="0.5" cy="0.4" r="0.55">
+      <stop offset="0" stop-color="#46e0a8" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#46e0a8" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="g-glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="13"/>
+    </filter>
+    <clipPath id="squircle"><rect x="0" y="0" width="512" height="512" rx="114.6"/></clipPath>
+  </defs>
+  <g transform="translate(100,100) scale(1.609375)">
+    <g clip-path="url(#squircle)">
+      <rect width="512" height="512" fill="url(#g-bg)"/>
+      <rect width="512" height="512" fill="url(#g-halo)"/>
+      <g transform="translate(0,-14)">
+        <path d="M 256 408 V 200 A 58 58 0 0 1 372 200 V 252" fill="none" stroke="#46e0a8" stroke-width="42" stroke-linecap="round" filter="url(#g-glow)" opacity="0.5"/>
+        <path d="M 140 252 V 200 A 58 58 0 0 1 256 200" fill="none" stroke="#f3cd76" stroke-width="42" stroke-linecap="round" filter="url(#g-glow)" opacity="0.4"/>
+        <path d="M 140 252 V 200 A 58 58 0 0 1 256 200" fill="none" stroke="url(#g-horn)" stroke-width="42" stroke-linecap="round"/>
+        <path d="M 256 408 V 200 A 58 58 0 0 1 372 200 V 252" fill="none" stroke="url(#g-st)" stroke-width="42" stroke-linecap="round"/>
+      </g>
+      <rect x="348" y="314" width="46" height="60" rx="10" fill="#f5c66b"/>
+    </g>
+  </g>
+</svg>

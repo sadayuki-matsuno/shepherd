@@ -1,0 +1,208 @@
+/* Shepherd docs — shared stylesheet.
+   Same Catppuccin-Mocha-derived palette as the app; dark-only by design. */
+:root {
+  --ground: #101018;
+  --surface: #16161f;
+  --card: #1e1e2e;
+  --card-2: #181825;
+  --line: #2b2b3d;
+  --text: #d6dbf0;
+  --subtext: #9aa1c0;
+  --faint: #6c7086;
+  --brand: #6fe0b0;
+  --gold: #f5c66b;
+  --green: #a6e3a1;
+  --peach: #fab387;
+  --mauve: #cba6f7;
+  --teal: #94e2d5;
+  --red: #f38ba8;
+  --yellow: #f9e2af;
+  --blue: #89b4fa;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --sidebar-w: 240px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--ground);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 15.5px;
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--brand); text-decoration: none; }
+a:hover { text-decoration: underline; }
+a:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 4px; }
+
+/* ── language switching ──────────────────────────── */
+/* Content ships as en/ja twins tagged with lang=""; the <html lang> picks one. Elements whose
+   text is identical in both languages carry no lang attribute and always show. */
+html[lang="ja"] [lang="en"] { display: none !important; }
+html[lang="en"] [lang="ja"] { display: none !important; }
+.langtoggle {
+  font-family: var(--mono); font-size: 12px; font-weight: 700;
+  background: none; border: 1px solid var(--line); border-radius: 7px;
+  color: var(--subtext); padding: 3px 10px; cursor: pointer;
+}
+.langtoggle:hover { color: var(--text); border-color: var(--faint); }
+
+/* ── top bar ─────────────────────────────────────── */
+.topbar {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 22px;
+  background: rgba(16,16,24,.92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+}
+.topbar .mark { width: 22px; height: 22px; flex: none; }
+.topbar .name { font-family: var(--mono); font-weight: 700; font-size: 14px; color: var(--text); }
+.topbar .name span { color: var(--faint); font-weight: 400; }
+.topbar .gh { margin-left: auto; font-family: var(--mono); font-size: 12.5px; color: var(--subtext); }
+.topbar .gh:hover { color: var(--text); text-decoration: none; }
+
+/* ── layout ──────────────────────────────────────── */
+.layout { display: flex; max-width: 1120px; margin: 0 auto; }
+.sidebar {
+  width: var(--sidebar-w); flex: none;
+  padding: 28px 18px 60px 22px;
+  position: sticky; top: 49px;
+  align-self: flex-start;
+  max-height: calc(100vh - 49px);
+  overflow-y: auto;
+}
+.sidebar .group {
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--faint);
+  margin: 20px 0 6px; padding-left: 10px;
+}
+.sidebar .group:first-child { margin-top: 0; }
+.sidebar a {
+  display: block; padding: 5px 10px; border-radius: 7px;
+  font-size: 13.5px; color: var(--subtext);
+}
+.sidebar a:hover { color: var(--text); background: var(--surface); text-decoration: none; }
+.sidebar a.active {
+  color: var(--brand); background: rgba(111,224,176,.09); font-weight: 600;
+}
+main {
+  flex: 1; min-width: 0;
+  padding: 36px 40px 80px;
+  border-left: 1px solid var(--line);
+}
+main > * + * { margin-top: 18px; }
+
+/* ── typography ──────────────────────────────────── */
+.eyebrow {
+  font-family: var(--mono); font-size: 12px; letter-spacing: .14em;
+  color: var(--brand); text-transform: uppercase;
+}
+.eyebrow::before { content: "# "; color: var(--faint); }
+h1 {
+  font-family: var(--mono); font-size: clamp(26px, 3.2vw, 34px);
+  line-height: 1.2; letter-spacing: -0.02em; font-weight: 800;
+  margin-top: 6px; text-wrap: balance;
+}
+h2 {
+  font-family: var(--mono); font-size: 20px; letter-spacing: -0.01em;
+  margin-top: 44px; padding-top: 22px; border-top: 1px solid var(--line);
+}
+h2:first-of-type { border-top: none; padding-top: 0; }
+h3 { font-size: 16px; margin-top: 28px; }
+p { color: var(--subtext); max-width: 72ch; }
+p strong, li strong { color: var(--text); }
+.lede { font-size: 17px; }
+main ul, main ol { padding-left: 22px; color: var(--subtext); max-width: 72ch; }
+main li { margin: 6px 0; }
+main li::marker { color: var(--brand); }
+code {
+  font-family: var(--mono); font-size: .88em; color: var(--teal);
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 5px; padding: 1px 5px;
+}
+pre {
+  background: #0c0c14; border: 1px solid var(--line); border-radius: 11px;
+  padding: 16px 20px; overflow-x: auto;
+}
+pre code { background: none; border: none; padding: 0; color: var(--text); font-size: 13px; line-height: 1.85; }
+pre .c { color: var(--faint); }
+pre .p { color: var(--brand); user-select: none; }
+
+/* ── tables ──────────────────────────────────────── */
+.tbl-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 11px; }
+table { border-collapse: collapse; width: 100%; background: var(--surface); }
+th, td { text-align: left; padding: 10px 16px; font-size: 13.5px; vertical-align: top; }
+th {
+  font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--faint); border-bottom: 1px solid var(--line); font-weight: 600;
+}
+td { border-bottom: 1px solid #23233394; color: var(--subtext); }
+tr:last-child td { border-bottom: none; }
+td:first-child { font-family: var(--mono); font-size: 12.5px; color: var(--text); white-space: nowrap; }
+td em { color: var(--brand); font-style: normal; }
+
+/* ── components ──────────────────────────────────── */
+.shot { border: 1px solid var(--line); border-radius: 13px; max-width: 100%; display: block; }
+.caption { font-size: 12.5px; color: var(--faint); margin-top: 8px; }
+.note {
+  background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--gold);
+  border-radius: 9px; padding: 12px 16px; font-size: 13.5px; color: var(--subtext);
+  max-width: 72ch;
+}
+.note.warn { border-left-color: var(--peach); }
+.btn {
+  display: inline-block; font-family: var(--mono); font-size: 13.5px; font-weight: 700;
+  padding: 9px 18px; border-radius: 9px; border: 1px solid transparent;
+}
+.btn.primary { background: var(--brand); color: #0c1712; }
+.btn.primary:hover { background: #85ecc0; text-decoration: none; }
+.btn.ghost { border-color: var(--line); color: var(--text); }
+.btn.ghost:hover { border-color: var(--faint); text-decoration: none; }
+.pagenav {
+  display: flex; justify-content: space-between; gap: 14px;
+  margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--line);
+  font-family: var(--mono); font-size: 13px;
+}
+.chip-demo {
+  font-family: var(--mono); font-size: 10.5px; font-weight: 700;
+  padding: 1px 7px; border-radius: 6px; white-space: nowrap;
+}
+.dot-demo { display: inline-block; width: 9px; height: 9px; border-radius: 50%; vertical-align: baseline; }
+
+/* card-anatomy figure (CSS mock, annotated) */
+.anatomy { display: grid; grid-template-columns: minmax(260px, 340px) 1fr; gap: 22px; align-items: start; }
+.mockcard {
+  background: var(--card-2); border-radius: 11px; padding: 12px 13px;
+  border: 1px solid var(--line); border-left: 3px solid var(--peach);
+  font-size: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.4);
+  position: relative;
+}
+.mockcard .banner {
+  margin: -12px -13px 8px; padding: 3px 10px; border-radius: 8px 8px 0 0;
+  background: rgba(250,179,135,.9); color: #11111b;
+  font-family: var(--mono); font-size: 9.5px; font-weight: 700;
+}
+.mockcard .ln { display: flex; align-items: center; gap: 6px; margin-top: 6px; position: relative; }
+.mockcard .num, .anatomy .num {
+  font-family: var(--mono); font-size: 9px; font-weight: 800;
+  width: 15px; height: 15px; border-radius: 50%; flex: none;
+  background: var(--brand); color: #0c1712;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.anatomy .legend { list-style: none; padding: 0; }
+.anatomy .legend li { display: flex; gap: 9px; align-items: baseline; margin: 9px 0; font-size: 13.5px; }
+.anatomy .legend .num { transform: translateY(2px); }
+
+@media (max-width: 860px) {
+  .layout { flex-direction: column; }
+  .sidebar {
+    position: static; width: 100%; max-height: none;
+    display: flex; flex-wrap: wrap; gap: 2px 4px;
+    padding: 14px 18px; border-bottom: 1px solid var(--line);
+  }
+  .sidebar .group { width: 100%; margin: 8px 0 2px; }
+  main { border-left: none; padding: 28px 22px 60px; }
+  .anatomy { grid-template-columns: 1fr; }
+}

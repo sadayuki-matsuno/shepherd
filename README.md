@@ -1,0 +1,85 @@
+<p align="center">
+  <img src="assets/icon.png" width="128" height="128" alt="Shepherd icon">
+</p>
+
+<h1 align="center">Shepherd</h1>
+
+A floating, always-on-top HUD for [Claude Code](https://claude.com/claude-code) — watch your flock of coding agents without opening a terminal.
+
+Shepherd sits in the corner of your screen and shows every Claude Code session on the machine — zellij panes, bare terminals and cc-daemon background workers alike: what it's doing, which repo/branch it's on, how many files it has changed, and which issue/PR it belongs to. Agents that need your input are impossible to miss.
+
+**Website:** [sadayuki-matsuno.github.io/shepherd](https://sadayuki-matsuno.github.io/shepherd/) · **Guide:** [The Herding Guide](docs/orchestration-guide.md) — vehicles, model tiering, and reading the board.
+
+<p align="center">
+  <img src="docs/assets/hud-en.png" width="760" alt="The Shepherd HUD: plan-usage bars in the header, then three repository columns — a blocked card showing its pending question in orange, working cards with permission-mode and model chips, PR/CI and Artifact badges, and a nested subagent card">
+</p>
+
+## Features
+
+- **Always visible** — floats above every window and Space, drag it anywhere, position is remembered
+- **Live status** — pushed by FSEvents on `~/.claude/sessions` (no polling, no hooks); agents sorted by urgency (needs input → working → idle)
+- **Rich rows** — workspace label, issue number (from branch/label), PR number (via `gh`, cached 60s), branch, changed-file count
+- **Click to open** — attaches the session's zellij tab and focuses its pane, or opens a background worker's live TUI with `claude attach` in a new terminal window
+- **Right-click menu** — per-card actions: reply (answer a blocked agent inline — over zellij, or over the cc-daemon control socket for a background worker), remote-control, capture a screen region and send it to that agent, and close (`claude stop` for a background agent, SIGTERM for an interactive one; guarded so a dirty working tree never loses uncommitted work)
+- **Drop files onto a row** — copies them to a scratch dir and sends the paths (plus an optional message) to that agent
+- **Zero deps** — plain Swift built with the Xcode Command Line Tools; no Xcode project, no packages
+
+## Requirements
+
+- macOS 13+
+- Xcode Command Line Tools (`xcode-select --install`) to build
+- Optional: [Ghostty](https://ghostty.org) (preferred terminal; falls back to Terminal.app), [gh](https://cli.github.com) for PR badges
+
+## Install
+
+```sh
+git clone https://github.com/sadayuki-matsuno/shepherd.git
+cd shepherd
+./build.sh          # builds + installs /Applications/Shepherd.app
+open -a Shepherd
+```
+
+## No hooks, no configuration
+
+Shepherd installs nothing into Claude Code. It reads what Claude Code already writes about itself:
+
+- `~/.claude/sessions/<pid>.json` — every session's own live status (`busy` / `idle` / `waiting`, and what it is waiting for). Watched with FSEvents, so state changes repaint the board immediately.
+- `claude agents --json --all` — the list of sessions, including finished background records.
+- the cc-daemon control socket — for background workers: their state, what they are doing this turn, and what a blocked one needs to be told (it also takes your reply).
+- the session's transcript — model, context usage, deliverable links, its AI-generated title, subagents, and API errors.
+- `ps -wwEp <pid>` — the session's environment: which zellij session and pane it lives in, and the `SHEPHERD_PARENT_SESSION_ID` a parent exported when it spawned the session, which is how child sessions nest under their parent. (This variable is Shepherd's own convention — export it yourself when one session launches another.)
+
+**Upgrading from a version that installed a hook?** Delete `~/.claude/hooks/shepherd-agent-status.sh` and `~/.claude/agent-status/`, and remove the `shepherd-agent-status.sh` entries from the `hooks` section of `~/.claude/settings.json`. (The `hooks/uninstall.sh` helper that automated this is gone — it's in the git history if you need it.)
+
+## Configuration
+
+All optional, via `defaults`:
+
+```sh
+
+# Terminal app used for jumping/opening directories (default: Ghostty if installed, else Terminal)
+defaults write com.sadayuki-matsuno.shepherd terminalApp Ghostty
+
+# Path to gh for PR badges; set to "" to disable PR lookup
+defaults write com.sadayuki-matsuno.shepherd ghPath /opt/homebrew/bin/gh
+```
+
+UI language follows your system language (Japanese / English).
+
+## Stream Deck support
+
+Shepherd can mirror the same board onto an [Elgato Stream Deck](https://www.elgato.com/stream-deck) — a physical status panel you can glance at and press to jump. The top screen shows one key per repo column (name, session count, status dots); press a column to drill into its sessions in urgency order, then press a session key to open it. Agents that need input **blink**.
+
+Click the **⚙** button in the HUD header and choose **Use Stream Deck** to turn it on (the choice is remembered). No extra install — Shepherd talks to the device directly over USB HID.
+
+- Tested on **Stream Deck MK.2** (15 keys); Original V2 uses the same protocol
+- The official **Elgato Stream Deck app must be quit** first — it and Shepherd can't share the device (`osascript -e 'quit app "Elgato Stream Deck"'`)
+- With several decks connected, Shepherd uses the first one. To pin a specific device by serial: `defaults write com.sadayuki-matsuno.shepherd deckSerial <serial>`
+
+## How it works
+
+Shepherd is a tiny AppKit app (one `NSPanel`, no Dock icon). A row's state comes from Claude Code's per-process registry (`~/.claude/sessions/`, see above), cross-checked against the cc-daemon control socket (which alone knows what a background worker is doing right now, and what a blocked one is waiting to be told). It is enriched by local `git` for branch/diff info, `gh` for PR/CI facts, the session's Claude Code transcript (model, context usage, deliverable links, pending questions), and `zellij` for jumping into / sending to zellij sessions.
+
+## License
+
+[MIT](LICENSE)

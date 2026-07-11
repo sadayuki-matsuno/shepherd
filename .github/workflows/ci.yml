@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Swift version
+        run: swiftc --version
+
+      - name: Run tests
+        run: ./test.sh
+
+      # --no-install: build + ad-hoc sign only (no /Applications install on a runner).
+      - name: Build app
+        run: ./build.sh --no-install
+
+      - name: Upload app bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: Shepherd.app
+          path: build/Shepherd.app
+          retention-days: 14
