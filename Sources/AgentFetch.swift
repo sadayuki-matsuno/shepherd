@@ -31,11 +31,30 @@ func fetchAgents() -> [AgentRow] {
     probe.wait()
     let envs = processEnvironments(pids: claudeEntries.compactMap { $0.pid })
 
+    // Ancestry snapshot, fetched once per refresh and only when some session carries BOTH
+    // TERM_PROGRAM=vscode and zellij vars — the one combination env facts can't classify alone
+    // (a VSCode cold-started from a zellij pane leaks ZELLIJ_* into its terminals; measured
+    // 2026-07-11, see resolveBackend).
+    let ancestryTable: [Int32: (ppid: Int32, comm: String)] =
+        envs.values.contains(where: { $0["TERM_PROGRAM"] == "vscode" && $0["ZELLIJ_SESSION_NAME"] != nil })
+        ? processTable() : [:]
+
     func buildRow(_ e: ClaudeAgentEntry) -> AgentRow {
         let cwd = e.cwd
         let job = daemonBySession[e.sessionId]
         let reg = registryBySession[e.sessionId]
         let env = envFacts(e.pid.flatMap { envs[$0] } ?? [:], isBackground: e.isBackground)
+        // No ancestry snapshot (or no pid to look up) = "unknown", per resolveBackend's contract —
+        // nil and false resolve the same today, but the distinction keeps the contract honest.
+        let backend = resolveBackend(
+            zellijSession: env.zellijSession, termProgram: env.termProgram,
+            underZellij: ancestryTable.isEmpty ? nil
+                : e.pid.map { zellijDescendant(pid: $0, table: ancestryTable) },
+            entrypoint: reg?.entrypoint)
+        // The zellij vars a non-zellij verdict leaves behind are the rejected leak — a pane the
+        // session doesn't live in. Cleared here so sendable/jump/capture never target it.
+        let zellijSession = backend == .zellij ? env.zellijSession : nil
+        let zellijPaneId = backend == .zellij ? env.zellijPaneId : nil
 
         // The daemon watches its worker directly; the registry is the session's own account of
         // itself; the CLI is a 5s-cached snapshot with no word for blocked. First opinion wins.
@@ -74,7 +93,7 @@ func fetchAgents() -> [AgentRow] {
         // A zellij row is sendable-to when its session is a single tab/pane (B1); the dump-layout
         // probe is a process, so its verdict is cached 30s per session.
         var zellijSendable = false
-        if let zs = env.zellijSession {
+        if let zs = zellijSession {
             factsLock.lock()
             let cached = zellijSendableCache[zs]
             factsLock.unlock()
@@ -108,8 +127,8 @@ func fetchAgents() -> [AgentRow] {
                             ?? activityFallback(cwd: cwd, sessionId: e.sessionId),
                         links: extractLinksFromTranscript(cwd: cwd, sessionId: e.sessionId),
                         statusSince: statusSince,
-                        backend: env.zellijSession != nil ? .zellij : .other,
-                        zellijSession: env.zellijSession, zellijPaneId: env.zellijPaneId, stale: false,
+                        backend: backend,
+                        zellijSession: zellijSession, zellijPaneId: zellijPaneId, stale: false,
                         parentSessionId: env.parentSessionId,
                         subagents: subagentsFromTranscript(cwd: cwd, sessionId: e.sessionId),
                         zellijSendable: zellijSendable,
@@ -119,7 +138,9 @@ func fetchAgents() -> [AgentRow] {
                         startedAt: e.startedAt,
                         forkKey: transcriptForkKey(cwd: cwd, sessionId: e.sessionId),
                         isBackground: e.isBackground, pid: e.pid,
-                        needs: job?.needs ?? (reg?.status == "waiting" ? reg?.waitingFor : nil))
+                        needs: job?.needs ?? (reg?.status == "waiting" ? reg?.waitingFor : nil),
+                        editorBundleId: backend == .vscode ? env.bundleId : nil,
+                        termProgram: env.termProgram, entrypoint: reg?.entrypoint)
     }
 
     // Each row's facts are dominated by subprocess / file IO, so build rows concurrently — wall-clock
@@ -152,7 +173,11 @@ func fetchAgents() -> [AgentRow] {
             // said nothing (a just-spawned agent that hasn't acted yet).
             subagentRows.append(subagentChildRow(
                 parent: r, rec: rec, git: gitFacts(cwd: agentCwd),
-                model: model, contextPct: contextPct,
+                // Model: the agent's own jsonl first (the resolved id), else the spawn-time alias
+                // from its meta — a just-spawned agent has no assistant line yet, and an inherited
+                // model has no meta entry either, so both sources are needed.
+                model: model ?? rec.model.flatMap(modelInfo),
+                contextPct: contextPct,
                 activity: rec.activity ?? rec.description ?? rec.name,
                 links: extractLinksFromTranscript(cwd: r.cwd, sessionId: key)))
         }

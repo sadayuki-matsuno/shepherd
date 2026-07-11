@@ -6,7 +6,7 @@
 
 A floating, always-on-top HUD for [Claude Code](https://claude.com/claude-code) — watch your flock of coding agents without opening a terminal.
 
-Shepherd sits in the corner of your screen and shows every Claude Code session on the machine — zellij panes, bare terminals and cc-daemon background workers alike: what it's doing, which repo/branch it's on, how many files it has changed, and which issue/PR it belongs to. Agents that need your input are impossible to miss.
+Shepherd sits in the corner of your screen and shows every Claude Code session on the machine — zellij panes, VS Code integrated terminals, bare terminals and cc-daemon background workers alike: what it's doing, which repo/branch it's on, how many files it has changed, and which issue/PR it belongs to. Agents that need your input are impossible to miss.
 
 **Docs:** [sadayuki-matsuno.github.io/shepherd](https://sadayuki-matsuno.github.io/shepherd/) — install, reading the board, actions, configuration · **Guide:** [The herding playbook](https://sadayuki-matsuno.github.io/shepherd/playbook.html) — vehicles, model tiering, and reading the board.
 
@@ -18,10 +18,10 @@ Shepherd sits in the corner of your screen and shows every Claude Code session o
 
 - **Always visible** — floats above every window and Space, drag it anywhere, position is remembered
 - **Live status** — pushed by FSEvents on `~/.claude/sessions` (no polling, no hooks); agents sorted by urgency (needs input → working → idle)
-- **Rich cards** — AI-generated task title, permission-mode and model chips, context-window gauge, elapsed time, branch, changed-file count, issue number (from the branch), PR number + CI state (via `gh`), links to Artifacts the session published, and a one-line "what Claude is doing right now"
+- **Rich cards** — AI-generated task title, permission-mode / model / runtime chips (what the session runs on: zellij, VS Code, Ghostty, a headless `claude -p` …), context-window gauge, elapsed time, branch, changed-file count, issue number (from the branch), PR number + CI state (via `gh`), links to Artifacts the session published, and a one-line "what Claude is doing right now"
 - **Family trees, not a flat list** — teammates, subagents and child sessions nest under their parent card while they work; finished background records fold into an archive lane
-- **Click to open** — attaches the session's zellij tab and focuses its pane, or opens a background worker's live TUI with `claude attach` in a new terminal window
-- **Right-click menu** — per-card actions: reply (answer a blocked agent inline — over zellij, or over the cc-daemon control socket for a background worker), remote-control, capture a screen region and send it to that agent, and close (`claude stop` for a background agent, SIGTERM for an interactive one; guarded so a dirty working tree never loses uncommitted work)
+- **Click to open** — attaches the session's zellij tab and focuses its pane, raises the VS Code window a session's integrated terminal or Claude Code extension panel lives in (built to cover Cursor/Windsurf-style forks too, though those are untested), or opens a background worker's live TUI with `claude attach` in a new terminal window
+- **Right-click menu** — per-card actions: reply (answer a blocked agent inline — over zellij, or over the cc-daemon control socket for a background worker; a VS Code terminal accepts no outside keystrokes, so click the card and answer in the editor instead), remote-control, capture a screen region and send it to that agent, and close (`claude stop` for a background agent, SIGTERM for an interactive one; guarded so a dirty working tree never loses uncommitted work)
 - **Drop files onto a row** — copies them to a scratch dir and sends the paths (plus an optional message) to that agent
 - **Zero deps** — plain Swift built with the Xcode Command Line Tools; no Xcode project, no packages
 
@@ -60,7 +60,7 @@ Shepherd installs nothing into Claude Code. It reads what Claude Code already wr
 - `claude agents --json --all` — the list of sessions, including finished background records.
 - the cc-daemon control socket — for background workers: their state, what they are doing this turn, and what a blocked one needs to be told (it also takes your reply).
 - the session's transcript — model, context usage, deliverable links, its AI-generated title, subagents, and API errors.
-- `ps -wwEp <pid>` — the session's environment: which zellij session and pane it lives in, and the `SHEPHERD_PARENT_SESSION_ID` a parent exported when it spawned the session, which is how child sessions nest under their parent. (This variable is Shepherd's own convention — export it yourself when one session launches another.)
+- `ps -wwEp <pid>` — the session's environment: which zellij session and pane it lives in, whether it runs in a VS Code-family integrated terminal (`TERM_PROGRAM` / `__CFBundleIdentifier` — the latter is also the exact `open -b` target, so forks like Cursor need no lookup table), and the `SHEPHERD_PARENT_SESSION_ID` a parent exported when it spawned the session, which is how child sessions nest under their parent. (This variable is Shepherd's own convention — export it yourself when one session launches another.)
 
 **Upgrading from a version that installed a hook?** Delete `~/.claude/hooks/shepherd-agent-status.sh` and `~/.claude/agent-status/`, and remove the `shepherd-agent-status.sh` entries from the `hooks` section of `~/.claude/settings.json`. (The `hooks/uninstall.sh` helper that automated this is gone — it's in the git history if you need it.)
 

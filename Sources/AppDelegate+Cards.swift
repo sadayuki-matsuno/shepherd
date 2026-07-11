@@ -268,6 +268,17 @@ extension AppDelegate {
         line1.addArrangedSubview(spacer)
         // (The old top-right "⌄N" fold toggle lived here — replaced by the bottom family strip,
         // which is far harder to miss. 2026-07-08.)
+        // A VSCode-family session wears the code-brackets mark where the terminal rows wear none —
+        // it's the one board glance that says "this card opens an editor window, not a terminal".
+        if row.backend == .vscode {
+            let mark = NSImageView()
+            mark.image = NSImage(systemSymbolName: "chevron.left.forwardslash.chevron.right", accessibilityDescription: nil)?
+                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 9, weight: .medium))
+            mark.contentTintColor = Cat.overlay
+            mark.toolTip = editorDisplayName(row.editorBundleId)
+            mark.setContentCompressionResistancePriority(.required, for: .horizontal)
+            line1.addArrangedSubview(mark)
+        }
         if remoteEnabledSessions.contains(row.sessionId) {
             let mark = NSImageView()
             mark.image = NSImage(systemSymbolName: "antenna.radiowaves.left.and.right", accessibilityDescription: nil)?
@@ -285,7 +296,7 @@ extension AppDelegate {
         // BG for a cc-daemon background agent (2026-07-09) — the one chip that changes what "close"
         // does, so it's worth seeing at a glance.
         let modeChip = permissionModeChip(row.permissionMode)
-        if modeChip != nil || row.model != nil || row.isBackground {
+        if modeChip != nil || row.model != nil || row.isBackground || row.runtime != nil {
             let chips = NSStackView()
             chips.orientation = .horizontal
             chips.spacing = 6
@@ -293,6 +304,9 @@ extension AppDelegate {
             if let pm = modeChip { chips.addArrangedSubview(tinyChip(pm.label, color: pm.color)) }
             if let m = row.model { chips.addArrangedSubview(modelChip(m)) }
             if row.isBackground { chips.addArrangedSubview(tinyChip("BG", color: Cat.mauve)) }
+            // Where the session runs (zellij / VS Code / Ghostty / claude -p …) — subdued, it's
+            // orientation, not state.
+            if let rt = row.runtime { chips.addArrangedSubview(tinyChip(rt, color: Cat.subtext)) }
             // 🅿 a live worker parked idle — holding memory, likely forgotten (see parkedChip).
             if let parked = parkedChip(row) { chips.addArrangedSubview(tinyChip(parked.label, color: parked.color, symbol: "parkingsign")) }
             inner.addArrangedSubview(chips)
@@ -442,8 +456,8 @@ extension AppDelegate {
             let forkCount = familyChildren.filter { $0.isFork }.count
             let realChildren = familyChildren.count - forkCount
             var parts: [String] = []
-            if forkCount > 0 { parts.append(L("fork \(forkCount)", "\(forkCount) fork")) }
-            if realChildren > 0 { parts.append(L("子 \(realChildren) 件", "\(realChildren) children")) }
+            if forkCount > 0 { parts.append(L("fork \(forkCount)", forkCount == 1 ? "1 fork" : "\(forkCount) forks")) }
+            if realChildren > 0 { parts.append(L("子 \(realChildren) 件", realChildren == 1 ? "1 child" : "\(realChildren) children")) }
             if familyWorking > 0 { parts.append(L("稼働中 \(familyWorking)", "\(familyWorking) working")) }
             let counts = symbolLabel(familyCollapsed ? "chevron.right" : "chevron.down",
                                      parts.joined(separator: L(" ・ ", " · ")), size: 10.5, weight: .bold,
@@ -677,6 +691,11 @@ extension AppDelegate {
         if row.backend == .zellij {
             card.onClick = { [weak self] in self?.openRow(row) }
             card.toolTip = L("クリック: zellij を開く / 右クリック: メニュー", "click: attach zellij / right-click: menu")
+        } else if row.backend == .vscode {
+            let editor = editorDisplayName(row.editorBundleId)
+            card.onClick = { [weak self] in self?.openRow(row) }
+            card.toolTip = L("クリック: \(editor) でフォルダを開く / 右クリック: メニュー",
+                             "click: open the folder in \(editor) / right-click: menu")
         } else if row.isBackground {
             // A cc-daemon background session has no terminal of its own, but `claude attach <id>`
             // in a Ghostty window is one click away (2026-07-10) — the native teams route, same
@@ -745,6 +764,9 @@ extension AppDelegate {
         // open / jump
         if row.backend == .zellij {
             menu.addItem(ClosureMenuItem(L("zellij を開く ↗", "Attach zellij ↗")) { [weak self] in self?.openRow(row) })
+        } else if row.backend == .vscode {
+            let editor = editorDisplayName(row.editorBundleId)
+            menu.addItem(ClosureMenuItem(L("\(editor) で開く ↗", "Open in \(editor) ↗")) { [weak self] in self?.openRow(row) })
         } else if row.isBackground {
             let id = shortSessionId(row.sessionId)
             menu.addItem(ClosureMenuItem(L("attach で開く ↗", "Attach ↗")) { [weak self] in self?.openRow(row) })
