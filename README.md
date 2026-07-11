@@ -18,7 +18,8 @@ Shepherd sits in the corner of your screen and shows every Claude Code session o
 
 - **Always visible** — floats above every window and Space, drag it anywhere, position is remembered
 - **Live status** — pushed by FSEvents on `~/.claude/sessions` (no polling, no hooks); agents sorted by urgency (needs input → working → idle)
-- **Rich rows** — workspace label, issue number (from branch/label), PR number (via `gh`, cached 60s), branch, changed-file count
+- **Rich cards** — AI-generated task title, permission-mode and model chips, context-window gauge, elapsed time, branch, changed-file count, issue number (from the branch), PR number + CI state (via `gh`), links to Artifacts the session published, and a one-line "what Claude is doing right now"
+- **Family trees, not a flat list** — teammates, subagents and child sessions nest under their parent card while they work; finished background records fold into an archive lane
 - **Click to open** — attaches the session's zellij tab and focuses its pane, or opens a background worker's live TUI with `claude attach` in a new terminal window
 - **Right-click menu** — per-card actions: reply (answer a blocked agent inline — over zellij, or over the cc-daemon control socket for a background worker), remote-control, capture a screen region and send it to that agent, and close (`claude stop` for a background agent, SIGTERM for an interactive one; guarded so a dirty working tree never loses uncommitted work)
 - **Drop files onto a row** — copies them to a scratch dir and sends the paths (plus an optional message) to that agent

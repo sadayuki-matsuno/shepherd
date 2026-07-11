@@ -110,7 +110,16 @@ orange, keep doing your own work.*
 | **Amber dog-ear** | Uncommitted changes in that worktree | Fine while working; a reminder before you close anything. |
 | Model chips all one color | Nobody chose models | See §2. |
 
-## 5. A worked example
+## 5. Receive deliverables as URLs
+
+Research reports, design docs, dashboards — have agents publish them as
+[Claude Artifacts](https://claude.com/blog/artifacts-in-claude-code) instead of chat
+scrollback. An Artifact is a hosted page with a stable URL: updates keep the same link,
+and it's readable from anywhere. Shepherd puts the link on the agent's card the moment
+it's published, so a finished workstream reads as one card carrying a PR badge and an
+Artifact badge — everything reviewable straight from the board.
+
+## 6. A worked example
 
 Shipping four groomed issues in parallel (this is the `/herd-issues` pattern —
 adapt freely):
