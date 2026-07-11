@@ -8,7 +8,7 @@ A floating, always-on-top HUD for [Claude Code](https://claude.com/claude-code) 
 
 Shepherd sits in the corner of your screen and shows every Claude Code session on the machine — zellij panes, bare terminals and cc-daemon background workers alike: what it's doing, which repo/branch it's on, how many files it has changed, and which issue/PR it belongs to. Agents that need your input are impossible to miss.
 
-**Website:** [sadayuki-matsuno.github.io/shepherd](https://sadayuki-matsuno.github.io/shepherd/) · **Guide:** [The Herding Guide](docs/orchestration-guide.md) — vehicles, model tiering, and reading the board.
+**Docs:** [sadayuki-matsuno.github.io/shepherd](https://sadayuki-matsuno.github.io/shepherd/) — install, reading the board, actions, configuration · **Guide:** [The herding playbook](https://sadayuki-matsuno.github.io/shepherd/playbook.html) — vehicles, model tiering, and reading the board.
 
 <p align="center">
   <img src="docs/assets/hud-en.png" width="760" alt="The Shepherd HUD: plan-usage bars in the header, then three repository columns — a blocked card showing its pending question in orange, working cards with permission-mode and model chips, PR/CI and Artifact badges, and a nested subagent card">
