@@ -584,10 +584,13 @@ func groupByRepo(_ rows: [AgentRow]) -> [RepoSection] {
         let rs = buckets[key]!.sorted(by: rank)
         // Header: name the column after the MAIN checkout, not whichever row ranks first — gitFacts
         // names a worktree row after its worktree directory (`repo-main-branch`), so a busy child
-        // session in a worktree would rename the whole column (2026-07-11). With no main checkout on
-        // the board, fall back to the shared common-dir key (`…/repo/.git` → "repo").
+        // session in a worktree would rename the whole column (2026-07-11). A row can also carry the
+        // repo's key with NO name at all — a child session in a non-repo cwd joins the column through
+        // the adopted repoKey (AgentFetch) — so a nameless row must not blank the header either
+        // (2026-07-11, the VSCode probe sessions). With no named main checkout on the board, fall
+        // back to the shared common-dir key (`…/repo/.git` → "repo").
         let header: String?
-        if let main = rs.first(where: { !$0.isWorktree }) {
+        if let main = rs.first(where: { !$0.isWorktree && $0.repoName != nil }) {
             header = main.repoName
         } else if let repoKey = rs.first?.repoKey {
             let name = (repoKey as NSString).lastPathComponent
