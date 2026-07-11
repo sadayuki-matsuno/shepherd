@@ -192,6 +192,20 @@ func runTranscriptTests() {
         expectEq(r.pct, 0.1, "100k of fable's 1M window, not the subagent's usage")
     }
 
+    test("readTranscriptContext: a subagent's OWN transcript keeps its sidechain lines") {
+        // Every assistant record in agent-<id>.jsonl carries isSidechain:true (measured
+        // 2026-07-11), so the main-chain filter above must not apply when the transcript being
+        // read IS the subagent's — or its card never gets a model chip or context gauge.
+        let cwd = "/tmp/proj-ctx"
+        let key = "parent-1/subagents/agent-abc123"
+        writeTranscript(cwd: cwd, sessionId: key, lines: [
+            #"{"type":"assistant","isSidechain":true,"message":{"model":"claude-haiku-4-5-20251001","usage":{"input_tokens":100000,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}"#,
+        ])
+        let r = readTranscriptContext(cwd: cwd, sessionId: key)
+        expectEq(r.model?.name, "HAIKU", "the agent's own model reaches its card")
+        expectEq(r.pct, 0.5, "and so does its own context usage")
+    }
+
     test("extractLinksFromTranscript: incremental scan merges new links") {
         let cwd = "/tmp/proj-inc"
         let sid = "inc-1"
@@ -383,7 +397,7 @@ func runTranscriptTests() {
         // carries the teammate's identity.
         write("agent-aaa.meta.json", #"{"agentType":"general-purpose","toolUseId":"toolu_1"}"#)
         write("agent-aaa.jsonl", #"{"type":"assistant","message":{"stop_reason":"end_turn","content":[{"type":"text","text":"できました"}]}}"#)
-        write("agent-bbb.meta.json", #"{"agentType":"Explore","name":"lineage-probe","description":"検証用teammate","worktreePath":"/repo/.claude/worktrees/agent-bbb","worktreeBranch":"worktree-agent-bbb","spawnDepth":1}"#)
+        write("agent-bbb.meta.json", #"{"agentType":"Explore","name":"lineage-probe","description":"検証用teammate","worktreePath":"/repo/.claude/worktrees/agent-bbb","worktreeBranch":"worktree-agent-bbb","spawnDepth":1,"model":"haiku"}"#)
         write("agent-bbb.jsonl", #"{"type":"assistant","message":{"stop_reason":"tool_use","content":[{"type":"tool_use","name":"Bash","input":{"command":"./test.sh"}}]}}"#)
         write("agent-ccc.meta.json", "{}")   // no agentType, and no jsonl at all
         // A teammate that wrote its final report and stopped leaves stop_reason null, but its tail is
@@ -403,6 +417,9 @@ func runTranscriptTests() {
         expect(agents[0].updatedAt != nil, "jsonl mtime is the freshness stamp")
         expect(agents[1].working, "tool_use tail → mid-turn"); expectEq(agents[1].type, "Explore")
         expectEq(agents[1].name, "lineage-probe")
+        expectEq(agents[1].model, "haiku",
+                 "the spawn-time model from the meta — the chip's source before the first API reply")
+        expectNil(agents[0].model, "no model key in the meta")
         expectEq(agents[1].activity, "⚙ Bash: ./test.sh", "working → the tool it's mid-call on")
         expectEq(agents[1].worktreePath, "/repo/.claude/worktrees/agent-bbb")
         expect(agents[2].working, "an unreadable agent reads as working — the safe side")

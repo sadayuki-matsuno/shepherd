@@ -152,7 +152,11 @@ func fetchAgents() -> [AgentRow] {
             // said nothing (a just-spawned agent that hasn't acted yet).
             subagentRows.append(subagentChildRow(
                 parent: r, rec: rec, git: gitFacts(cwd: agentCwd),
-                model: model, contextPct: contextPct,
+                // Model: the agent's own jsonl first (the resolved id), else the spawn-time alias
+                // from its meta — a just-spawned agent has no assistant line yet, and an inherited
+                // model has no meta entry either, so both sources are needed.
+                model: model ?? rec.model.flatMap(modelInfo),
+                contextPct: contextPct,
                 activity: rec.activity ?? rec.description ?? rec.name,
                 links: extractLinksFromTranscript(cwd: r.cwd, sessionId: key)))
         }
