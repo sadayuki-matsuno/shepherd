@@ -82,12 +82,15 @@ chmod +x "$BIN/claude" "$BIN/gh"
 # screenshots show the chips deterministically instead of leaking the invoking shell's env.
 # gsleep (homebrew coreutils), NOT /bin/sleep: macOS hides an Apple platform binary's env from
 # `ps -E` entirely (measured 2026-07-12), so a /bin/sleep-backed row can never wear a chip.
+# The zellij vars pass through from the invoking pane when present (dev/demo-director.sh runs
+# inside a single-pane zellij session): the rows then name a REAL session, so the HUD's popover
+# reply actually delivers. Outside zellij they fall back to the fixed fake ("demo").
 SLEEPBIN=$(command -v gsleep || echo /bin/sleep)
 [ "$SLEEPBIN" = /bin/sleep ] && echo "warn: gsleep not found — runtime chips won't show (brew install coreutils)" >&2
 pkill -f "sleep 86340" 2>/dev/null || true
 PIDS=()
 for _ in 1 2 3; do
-  env -i ZELLIJ_SESSION_NAME=demo ZELLIJ_PANE_ID=7 TERM_PROGRAM=ghostty \
+  env -i ZELLIJ_SESSION_NAME="${ZELLIJ_SESSION_NAME:-demo}" ZELLIJ_PANE_ID="${ZELLIJ_PANE_ID:-7}" TERM_PROGRAM=ghostty \
     "$SLEEPBIN" 86340 >/dev/null 2>&1 & PIDS+=($!)
 done
 env -i TERM_PROGRAM=vscode __CFBundleIdentifier=com.microsoft.VSCode \
