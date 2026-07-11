@@ -44,9 +44,12 @@ func fetchAgents() -> [AgentRow] {
         let job = daemonBySession[e.sessionId]
         let reg = registryBySession[e.sessionId]
         let env = envFacts(e.pid.flatMap { envs[$0] } ?? [:], isBackground: e.isBackground)
+        // No ancestry snapshot (or no pid to look up) = "unknown", per resolveBackend's contract —
+        // nil and false resolve the same today, but the distinction keeps the contract honest.
         let backend = resolveBackend(
             zellijSession: env.zellijSession, termProgram: env.termProgram,
-            underZellij: e.pid.map { !ancestryTable.isEmpty ? zellijDescendant(pid: $0, table: ancestryTable) : false })
+            underZellij: ancestryTable.isEmpty ? nil
+                : e.pid.map { zellijDescendant(pid: $0, table: ancestryTable) })
         // The zellij vars a non-zellij verdict leaves behind are the rejected leak — a pane the
         // session doesn't live in. Cleared here so sendable/jump/capture never target it.
         let zellijSession = backend == .zellij ? env.zellijSession : nil
