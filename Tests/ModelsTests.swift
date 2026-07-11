@@ -163,6 +163,31 @@ func runModelsTests() {
         expectEq(sections.first?.header, "shepherd", "but the column keeps the repo's name")
     }
 
+    test("groupByRepo: a repoName-less child can't blank the column header") {
+        // A child session in a non-repo cwd joins its parent's column through the adopted repoKey
+        // (AgentFetch's child→repoKey pass) but carries no repoName of its own. Blocked, it ranked
+        // first and named the column nil → "その他" (2026-07-11, the VSCode probe sessions).
+        let rows = [
+            makeRow(sessionId: "main", status: "idle", label: "main",
+                    repoKey: "/x/shepherd/.git", repoName: "shepherd"),
+            makeRow(sessionId: "probe", status: "blocked", label: "probe",
+                    repoKey: "/x/shepherd/.git"),
+        ]
+        let sections = groupByRepo(rows)
+        expectEq(sections.count, 1, "the adopted repoKey keeps the child in the repo's column")
+        expectEq(sections.first?.rows.first?.sessionId, "probe", "the blocked child still ranks first")
+        expectEq(sections.first?.header, "shepherd", "but the column keeps the repo's name")
+    }
+
+    test("groupByRepo: a section with only nameless rows falls back to the common-dir key") {
+        let rows = [
+            makeRow(sessionId: "probe", status: "blocked", label: "probe",
+                    repoKey: "/x/shepherd/.git"),
+        ]
+        expectEq(groupByRepo(rows).first?.header, "shepherd",
+                 "a named header still beats nil when every row lacks a repoName")
+    }
+
     test("groupByRepo: all-worktree group derives its header from the shared .git key") {
         let rows = [
             makeRow(sessionId: "w1", status: "working", label: "w1",
