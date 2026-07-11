@@ -100,7 +100,9 @@ PYEOF
 beat 0
 echo
 echo "▶ beat 0: 全カード busy（緑）。Shepherd を上のコマンドで起動 → 録画開始 → Enter で質問を浮かせる"
-read -r
+echo "  （Shepherd はこの zellij の外＝別ターミナルから起動する。このセッションにペインを足すと"
+echo "    単一ペインガードに引っかかり、ポップオーバー回答が黙って届かなくなる）"
+read -r || true
 beat 1
 echo "▶ beat 1: checkout がオレンジ（応答待ち）。盤面のカードをクリックして選択肢に回答してください"
 echo "  （回答のキー入力がこのペインに届き、自動で beat 2 = カード復帰に進みます）"
