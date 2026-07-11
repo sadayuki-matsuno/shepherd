@@ -453,8 +453,8 @@ extension AppDelegate {
             let forkCount = familyChildren.filter { $0.isFork }.count
             let realChildren = familyChildren.count - forkCount
             var parts: [String] = []
-            if forkCount > 0 { parts.append(L("fork \(forkCount)", "\(forkCount) fork")) }
-            if realChildren > 0 { parts.append(L("子 \(realChildren) 件", "\(realChildren) children")) }
+            if forkCount > 0 { parts.append(L("fork \(forkCount)", forkCount == 1 ? "1 fork" : "\(forkCount) forks")) }
+            if realChildren > 0 { parts.append(L("子 \(realChildren) 件", realChildren == 1 ? "1 child" : "\(realChildren) children")) }
             if familyWorking > 0 { parts.append(L("稼働中 \(familyWorking)", "\(familyWorking) working")) }
             let counts = symbolLabel(familyCollapsed ? "chevron.right" : "chevron.down",
                                      parts.joined(separator: L(" ・ ", " · ")), size: 10.5, weight: .bold,
