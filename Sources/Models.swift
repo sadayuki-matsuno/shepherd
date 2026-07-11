@@ -562,7 +562,8 @@ struct AgentLink {
 //  - zellij: jump (attach the session, focus its pane) + send-text / capture / drop
 //  - vscode: a VSCode-family integrated terminal (VSCode / Cursor / Windsurf — identified by
 //    TERM_PROGRAM, opened via its __CFBundleIdentifier). Jumpable (`open -b <bundle> <cwd>`), but
-//    no external key injection exists, so replies fall back to clipboard + raise + paste hint
+//    no external key injection exists, so there is no inline reply — the click lands keyboard
+//    focus in the editor and the user answers there (see AgentRow.replyable)
 //  - other: a background worker (opens with `claude attach`), or a Claude started straight in a
 //    terminal, which Shepherd can only display and stop
 enum Backend { case zellij, vscode, other }
