@@ -6,11 +6,11 @@ func makeRow(sessionId: String = "", status: String = "idle",
              changedFiles: Int? = nil, backend: Backend = .other,
              statusSince: Date = Date.distantPast, parentSessionId: String? = nil,
              startedAt: Date? = nil, forkKey: String? = nil, isFork: Bool = false,
-             isBackground: Bool = false, pid: Int32? = nil) -> AgentRow {
+             isBackground: Bool = false, pid: Int32? = nil, isWorktree: Bool = false) -> AgentRow {
     AgentRow(sessionId: sessionId, model: nil, contextPct: nil,
              status: status, label: label, cwd: cwd, dirName: "", dirPath: "",
              branch: nil, changedFiles: changedFiles, issueNo: nil, prNo: nil, prUrl: nil, ciState: nil,
-             repoKey: repoKey, repoName: repoName, isWorktree: false, activity: nil, links: [],
+             repoKey: repoKey, repoName: repoName, isWorktree: isWorktree, activity: nil, links: [],
              statusSince: statusSince, backend: backend, zellijSession: nil,
              zellijPaneId: nil, stale: false,
              parentSessionId: parentSessionId, subagents: [], zellijSendable: false,
@@ -146,6 +146,31 @@ func runModelsTests() {
             makeRow(sessionId: "n", status: "working", label: "n", repoKey: "R2", repoName: "r-new", statusSince: new),
         ]
         expectEq(groupByRepo(rows).first?.header, "r-new", "most recently changed group first")
+    }
+
+    test("groupByRepo: header sticks to the main checkout, not the top-ranked worktree row") {
+        // gitFacts names a worktree row after its worktree DIRECTORY (`shepherd-main-fix`), so
+        // before 2026-07-11 a busy child in a worktree renamed the whole column to its own name.
+        let rows = [
+            makeRow(sessionId: "main", status: "idle", label: "main",
+                    repoKey: "/x/shepherd/.git", repoName: "shepherd"),
+            makeRow(sessionId: "child", status: "working", label: "child",
+                    repoKey: "/x/shepherd/.git", repoName: "shepherd-main-fix", isWorktree: true),
+        ]
+        let sections = groupByRepo(rows)
+        expectEq(sections.count, 1, "worktrees share the repo's column")
+        expectEq(sections.first?.rows.first?.sessionId, "child", "the busy worktree still ranks first")
+        expectEq(sections.first?.header, "shepherd", "but the column keeps the repo's name")
+    }
+
+    test("groupByRepo: all-worktree group derives its header from the shared .git key") {
+        let rows = [
+            makeRow(sessionId: "w1", status: "working", label: "w1",
+                    repoKey: "/x/shepherd/.git", repoName: "shepherd-main-a", isWorktree: true),
+            makeRow(sessionId: "w2", status: "idle", label: "w2",
+                    repoKey: "/x/shepherd/.git", repoName: "shepherd-main-b", isWorktree: true),
+        ]
+        expectEq(groupByRepo(rows).first?.header, "shepherd", "common-dir parent names the column")
     }
 
     test("treeOrder: children nest under parents") {

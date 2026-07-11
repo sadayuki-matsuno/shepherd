@@ -578,7 +578,22 @@ func groupByRepo(_ rows: [AgentRow]) -> [RepoSection] {
     }
     var sections = order.map { key -> RepoSection in
         let rs = buckets[key]!.sorted(by: rank)
-        return RepoSection(header: rs.first?.repoName, rows: rs)
+        // Header: name the column after the MAIN checkout, not whichever row ranks first — gitFacts
+        // names a worktree row after its worktree directory (`repo-main-branch`), so a busy child
+        // session in a worktree would rename the whole column (2026-07-11). With no main checkout on
+        // the board, fall back to the shared common-dir key (`…/repo/.git` → "repo").
+        let header: String?
+        if let main = rs.first(where: { !$0.isWorktree }) {
+            header = main.repoName
+        } else if let repoKey = rs.first?.repoKey {
+            let name = (repoKey as NSString).lastPathComponent
+            header = name == ".git"
+                ? ((repoKey as NSString).deletingLastPathComponent as NSString).lastPathComponent
+                : name
+        } else {
+            header = nil
+        }
+        return RepoSection(header: header, rows: rs)
     }
     sections.sort {
         let ao = $0.rows.map { style(for: $0.status).order }.min() ?? 99
