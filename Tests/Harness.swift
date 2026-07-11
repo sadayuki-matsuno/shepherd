@@ -48,8 +48,11 @@ let testTmpDir: String = {
 // Write a transcript fixture for (cwd, sessionId) under the overridden claudeProjectsDir.
 func writeTranscript(cwd: String, sessionId: String, lines: [String]) {
     let dir = (claudeProjectsDir as NSString).appendingPathComponent(sanitizeCwd(cwd))
-    try! FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
     let path = (dir as NSString).appendingPathComponent("\(sessionId).jsonl")
+    // A subagent transcriptKey ("<parent>/subagents/agent-<id>") puts subdirectories in the
+    // session id, so create the file's own parent, not just the project dir.
+    try! FileManager.default.createDirectory(atPath: (path as NSString).deletingLastPathComponent,
+                                             withIntermediateDirectories: true)
     try! (lines.joined(separator: "\n") + "\n").write(toFile: path, atomically: true, encoding: .utf8)
 }
 

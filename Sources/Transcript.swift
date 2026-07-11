@@ -37,13 +37,18 @@ func readTranscriptContext(cwd: String, sessionId: String) -> (model: ModelInfo?
     else if size <= 65_536 { try? fh.seek(toOffset: 0) }
     guard let data = try? fh.readToEnd() else { return (nil, nil) }
     let text = String(decoding: data, as: UTF8.self)
+    // A subagent's own transcript (sessionId = "<parent>/subagents/agent-<id>") is ALL sidechain
+    // lines — every assistant record in agent-<id>.jsonl carries isSidechain:true (measured
+    // 2026-07-11) — so the main-chain filter below would discard the whole file and the agent's
+    // card would never get a model chip or context gauge.
+    let ownSidechain = sessionId.contains("/subagents/")
     for line in text.split(separator: "\n").reversed() {
         guard let d = line.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
               // Sidechain lines are Agent-tool subagent turns — their usage is the SUBAGENT's own
               // (small) context, not the main session's, so a card would show a bogus % whenever a
               // subagent spoke last. Skip them; only the main chain counts.
-              (obj["isSidechain"] as? Bool) != true,
+              ownSidechain || (obj["isSidechain"] as? Bool) != true,
               let msg = obj["message"] as? [String: Any],
               let usage = msg["usage"] as? [String: Any] else { continue }
         let total = (usage["input_tokens"] as? Int ?? 0)
@@ -534,6 +539,7 @@ func subagentsFromTranscript(cwd: String, sessionId: String) -> [SubagentRecord]
         rec.description = metaString("description")
         rec.worktreePath = metaString("worktreePath")
         rec.worktreeBranch = metaString("worktreeBranch")
+        rec.model = metaString("model")
         let jsonl = (subagents as NSString)
             .appendingPathComponent(String(name.dropLast(".meta.json".count)) + ".jsonl")
         let tail = subagentTail(path: jsonl)

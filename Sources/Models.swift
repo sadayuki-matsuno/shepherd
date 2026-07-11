@@ -356,6 +356,10 @@ struct SubagentRecord {
     var description: String? = nil // the Agent tool's short task description
     var worktreePath: String? = nil    // worktree isolation only
     var worktreeBranch: String? = nil
+    var model: String? = nil       // meta `model` — the spawn-time alias ("haiku"), present only when
+                                   // the caller overrode the model. The chip's source until the
+                                   // agent's first assistant reply lands in its jsonl (which then
+                                   // wins: it carries the resolved model id)
     var working: Bool = false      // jsonl tail is mid-turn (the turn hasn't ended)
     var activity: String? = nil    // "what it's doing now" from its own jsonl: the last tool call
                                    // while working, else its last message — its analogue of the
@@ -702,7 +706,25 @@ func groupByRepo(_ rows: [AgentRow]) -> [RepoSection] {
     }
     var sections = order.map { key -> RepoSection in
         let rs = buckets[key]!.sorted(by: rank)
-        return RepoSection(header: rs.first?.repoName, rows: rs)
+        // Header: name the column after the MAIN checkout, not whichever row ranks first — gitFacts
+        // names a worktree row after its worktree directory (`repo-main-branch`), so a busy child
+        // session in a worktree would rename the whole column (2026-07-11). A row can also carry the
+        // repo's key with NO name at all — a child session in a non-repo cwd joins the column through
+        // the adopted repoKey (AgentFetch) — so a nameless row must not blank the header either
+        // (2026-07-11, the VSCode probe sessions). With no named main checkout on the board, fall
+        // back to the shared common-dir key (`…/repo/.git` → "repo").
+        let header: String?
+        if let main = rs.first(where: { !$0.isWorktree && $0.repoName != nil }) {
+            header = main.repoName
+        } else if let repoKey = rs.first?.repoKey {
+            let name = (repoKey as NSString).lastPathComponent
+            header = name == ".git"
+                ? ((repoKey as NSString).deletingLastPathComponent as NSString).lastPathComponent
+                : name
+        } else {
+            header = nil
+        }
+        return RepoSection(header: header, rows: rs)
     }
     sections.sort {
         let ao = $0.rows.map { style(for: $0.status).order }.min() ?? 99
