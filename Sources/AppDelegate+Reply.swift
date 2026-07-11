@@ -213,6 +213,7 @@ extension AppDelegate {
             dropPopover = nil
         } else if pop === helpPopover {
             if let m = helpEscMonitor { NSEvent.removeMonitor(m); helpEscMonitor = nil }
+            if let m = helpClickMonitor { NSEvent.removeMonitor(m); helpClickMonitor = nil }
             helpPopover = nil
         }
     }

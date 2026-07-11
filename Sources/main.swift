@@ -179,6 +179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NST
     // ？ヘルプ（アイコン・UI凡例）ポップオーバー。表示中は rebuild をスキップ（他のポップオーバーと同じ扱い）。
     var helpPopover: NSPopover?
     var helpEscMonitor: Any?
+    var helpClickMonitor: Any?
 }
 
 // Fixture seams for staged captures / self-checks (same vars the tests override): point the two

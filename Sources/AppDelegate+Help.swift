@@ -212,6 +212,20 @@ extension AppDelegate {
             if event.keyCode == 53 { self?.closeHelp(); return nil }   // Esc
             return event
         }
+        // Click-outside-to-close, same pattern as the repo picker (2026-07-11 report). Clicks on
+        // the ? button itself pass through — showHelp's own toggle closes then; closing here too
+        // would make the button action immediately reopen it.
+        helpClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self, weak sender] event in
+            guard let self = self else { return event }
+            if event.window !== self.helpPopover?.contentViewController?.view.window {
+                if let sender = sender, event.window === sender.window,
+                   sender.bounds.contains(sender.convert(event.locationInWindow, from: nil)) {
+                    return event
+                }
+                self.closeHelp()
+            }
+            return event
+        }
 
         NSApp.activate(ignoringOtherApps: true)
         pop.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
@@ -227,3 +241,4 @@ extension AppDelegate {
 }
 
 let shepherdRepoURL = "https://github.com/sadayuki-matsuno/shepherd"
+let shepherdDocsURL = "https://sadayuki-matsuno.github.io/shepherd/"

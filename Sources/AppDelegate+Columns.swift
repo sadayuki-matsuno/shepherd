@@ -528,8 +528,40 @@ extension AppDelegate {
             box.addArrangedSubview(feat)
         }
 
-        box.widthAnchor.constraint(equalToConstant: contentWidth - 24).isActive = true
-        return box
+        let docs = badge(L("ドキュメント ↗", "Documentation ↗"), symbol: "book",
+                         fg: Cat.teal, bg: Cat.teal.withAlphaComponent(0.14), tip: shepherdDocsURL) {
+            if let u = URL(string: shepherdDocsURL) { NSWorkspace.shared.open(u) }
+        }
+        let docsWrap = NSStackView(views: [docs])
+        docsWrap.edgeInsets = NSEdgeInsets(top: 5, left: 0, bottom: 0, right: 0)
+        box.addArrangedSubview(docsWrap)
+
+        // Center in both axes for every HUD size mode (2026-07-11 report: pinned to the
+        // single-column contentWidth, the box hugged the top-left of a fixed 2–3 column panel).
+        // The wrapper spans the same width the header does (boardSpanWidth), and in the fixed /
+        // fullDisplay modes it also claims the panel height left over below the header rows —
+        // measured from the stack at this point in rebuild — so the content floats at the visual
+        // center. In auto mode the panel hugs the content, so the wrapper just hugs the box.
+        let wrap = NSView()
+        wrap.translatesAutoresizingMaskIntoConstraints = false
+        box.translatesAutoresizingMaskIntoConstraints = false
+        wrap.addSubview(box)
+        NSLayoutConstraint.activate([
+            wrap.widthAnchor.constraint(equalToConstant: boardSpanWidth),
+            wrap.heightAnchor.constraint(greaterThanOrEqualTo: box.heightAnchor),
+            box.centerXAnchor.constraint(equalTo: wrap.centerXAnchor),
+            box.centerYAnchor.constraint(equalTo: wrap.centerYAnchor),
+        ])
+        if let panelH = fixedPanelSize()?.height {
+            stack.layoutSubtreeIfNeeded()
+            box.layoutSubtreeIfNeeded()
+            // 64 ≈ the document's top/bottom insets (24) + the hint line + stack spacing below.
+            let remaining = panelH - stack.fittingSize.height - 64
+            if remaining > box.fittingSize.height {
+                wrap.heightAnchor.constraint(equalToConstant: remaining).isActive = true
+            }
+        }
+        return wrap
     }
 
     // One usage gauge row: label · track with a filled portion · percent + reset countdown.
