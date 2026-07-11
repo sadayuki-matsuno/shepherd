@@ -414,6 +414,20 @@ func runModelsTests() {
                "no ancestry answer → the measured leak case wins")
     }
 
+    test("resolveBackend: a Claude Code extension-panel session is vscode by entrypoint alone") {
+        // Measured 2026-07-12: the extension panel spawns claude directly (no integrated terminal),
+        // so TERM_PROGRAM stays whatever shell cold-started VS Code (ghostty) and leaked zellij vars
+        // ride along — env alone classifies it as a stranger's zellij pane. The registry's
+        // entrypoint ("claude-vscode") is the one clean fact, and it must win outright.
+        expect(resolveBackend(zellijSession: "cactus", termProgram: "ghostty",
+                              entrypoint: "claude-vscode") == .vscode,
+               "leaked zellij + host-terminal TERM_PROGRAM must not route the panel session at a pane")
+        expect(resolveBackend(zellijSession: nil, termProgram: nil, entrypoint: "claude-vscode") == .vscode,
+               "a Dock-launched VS Code's panel session has no terminal facts at all")
+        expect(resolveBackend(zellijSession: "cactus", termProgram: "ghostty", entrypoint: "cli") == .zellij,
+               "a normal REPL in a pane keeps its zellij verdict")
+    }
+
     test("zellijDescendant: the ancestor walk tells a pane's claude from a VSCode terminal's") {
         // pid 1 launchd; 10 zellij server; 11 fish (pane); 12 claude-in-pane;
         // 20 Electron (VSCode); 21 Code Helper; 22 zsh; 23 claude-in-vscode.
@@ -444,6 +458,22 @@ func runModelsTests() {
         expectNil(row.zellijPaneId, "as is the pane — sendable must not target a stranger's pane")
         expect(!row.sendable, "no key injection exists for a VSCode terminal")
         expect(!row.replyable, "no reply UI either — the card click lands focus in the editor, answer there")
+        expectEq(row.runtime, "VS Code", "the runtime chip reads the editor name off the row's stored facts")
+    }
+
+    test("claudeAgentRow: an extension-panel session (measured 2026-07-12) jumps to its editor, not a pane") {
+        let e = parseClaudeAgents(claudeAgentsFixture)[0]   // an interactive session
+        let row = claudeAgentRow(e, updatedAt: nil,
+                                 env: EnvFacts(zellijSession: "implacable-cactus", zellijPaneId: "18",
+                                               termProgram: "ghostty",
+                                               bundleId: "com.microsoft.VSCode"),
+                                 entrypoint: "claude-vscode")
+        expect(row.backend == .vscode, "the registry entrypoint outranks every leaked env fact")
+        expectEq(row.editorBundleId, "com.microsoft.VSCode")
+        expectNil(row.zellijSession, "the cold-start pane's leaked session is dropped")
+        expectNil(row.zellijPaneId)
+        expect(!row.sendable && !row.replyable, "no key route into the panel either")
+        expectEq(row.runtime, "VS Code")
     }
 
     test("editorDisplayName: known forks get their name, everything else reads VS Code") {
@@ -451,6 +481,43 @@ func runModelsTests() {
         expectEq(editorDisplayName("com.todesktop.230313mzl4w4u92"), "Cursor")
         expectEq(editorDisplayName("com.exafunction.windsurf"), "Windsurf")
         expectEq(editorDisplayName(nil), "VS Code", "a missing bundle id still names the default jump target")
+    }
+
+    test("terminalDisplayName: TERM_PROGRAM values read as app names, unknown ones pass through") {
+        expectEq(terminalDisplayName("ghostty"), "Ghostty")
+        expectEq(terminalDisplayName("iTerm.app"), "iTerm")
+        expectEq(terminalDisplayName("Apple_Terminal"), "Terminal")
+        expectEq(terminalDisplayName("WezTerm"), "WezTerm")
+        expectEq(terminalDisplayName("tmux"), "tmux")
+        expectEq(terminalDisplayName("SomeFutureTerm"), "SomeFutureTerm",
+                 "a terminal we never met still names itself instead of vanishing")
+        expectNil(terminalDisplayName(nil), "no TERM_PROGRAM → no name to show")
+    }
+
+    test("runtimeLabel: names what a session runs on — multiplexer, editor, terminal, or headless") {
+        func label(backend: Backend = .other, term: String? = nil, editor: String? = nil,
+                   entrypoint: String? = "cli", bg: Bool = false, sub: Bool = false) -> String? {
+            runtimeLabel(backend: backend, termProgram: term, editorBundleId: editor,
+                         entrypoint: entrypoint, isBackground: bg, isSubagent: sub)
+        }
+        expectEq(label(backend: .zellij, term: "ghostty"), "zellij",
+                 "the multiplexer is the home, not the host terminal it passes through")
+        expectEq(label(backend: .vscode, term: "vscode", editor: "com.microsoft.VSCode"), "VS Code")
+        expectEq(label(backend: .vscode, term: "vscode", editor: "com.todesktop.230313mzl4w4u92"), "Cursor")
+        expectEq(label(term: "ghostty"), "Ghostty", "a bare terminal names the terminal app")
+        expectNil(label(), "no fact at all → no chip, not a guess")
+        expectEq(label(term: "ghostty", entrypoint: "sdk-cli"), "claude -p",
+                 "headless mode outranks the terminal it was typed into (registry entrypoint, measured 2026-07-11)")
+        expectEq(label(entrypoint: "future-mode"), "future-mode",
+                 "an entrypoint we never met surfaces verbatim instead of vanishing")
+        expectEq(label(backend: .vscode, editor: "com.microsoft.VSCode", entrypoint: "claude-vscode"), "VS Code",
+                 "an extension-panel session names its editor, not the raw entrypoint word")
+        expectEq(label(term: "ghostty", entrypoint: nil), "Ghostty",
+                 "the terminal fact is env-sourced — a missing registry entry must not hide it")
+        expectEq(label(term: "ghostty", entrypoint: ""), "Ghostty",
+                 "an empty entrypoint must not render a blank chip — fall through to the terminal")
+        expectNil(label(backend: .zellij, bg: true), "a worker's BG chip already says where it runs")
+        expectNil(label(backend: .zellij, sub: true), "a subagent runs inside its parent's process")
     }
 
     test("statusFromDaemon: a non-empty needs means blocked even when state says running") {

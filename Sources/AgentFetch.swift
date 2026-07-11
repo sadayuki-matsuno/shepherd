@@ -49,7 +49,8 @@ func fetchAgents() -> [AgentRow] {
         let backend = resolveBackend(
             zellijSession: env.zellijSession, termProgram: env.termProgram,
             underZellij: ancestryTable.isEmpty ? nil
-                : e.pid.map { zellijDescendant(pid: $0, table: ancestryTable) })
+                : e.pid.map { zellijDescendant(pid: $0, table: ancestryTable) },
+            entrypoint: reg?.entrypoint)
         // The zellij vars a non-zellij verdict leaves behind are the rejected leak — a pane the
         // session doesn't live in. Cleared here so sendable/jump/capture never target it.
         let zellijSession = backend == .zellij ? env.zellijSession : nil
@@ -138,7 +139,8 @@ func fetchAgents() -> [AgentRow] {
                         forkKey: transcriptForkKey(cwd: cwd, sessionId: e.sessionId),
                         isBackground: e.isBackground, pid: e.pid,
                         needs: job?.needs ?? (reg?.status == "waiting" ? reg?.waitingFor : nil),
-                        editorBundleId: backend == .vscode ? env.bundleId : nil)
+                        editorBundleId: backend == .vscode ? env.bundleId : nil,
+                        termProgram: env.termProgram, entrypoint: reg?.entrypoint)
     }
 
     // Each row's facts are dominated by subprocess / file IO, so build rows concurrently — wall-clock

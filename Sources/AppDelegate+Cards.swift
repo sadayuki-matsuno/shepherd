@@ -296,7 +296,7 @@ extension AppDelegate {
         // BG for a cc-daemon background agent (2026-07-09) — the one chip that changes what "close"
         // does, so it's worth seeing at a glance.
         let modeChip = permissionModeChip(row.permissionMode)
-        if modeChip != nil || row.model != nil || row.isBackground {
+        if modeChip != nil || row.model != nil || row.isBackground || row.runtime != nil {
             let chips = NSStackView()
             chips.orientation = .horizontal
             chips.spacing = 6
@@ -304,6 +304,9 @@ extension AppDelegate {
             if let pm = modeChip { chips.addArrangedSubview(tinyChip(pm.label, color: pm.color)) }
             if let m = row.model { chips.addArrangedSubview(modelChip(m)) }
             if row.isBackground { chips.addArrangedSubview(tinyChip("BG", color: Cat.mauve)) }
+            // Where the session runs (zellij / VS Code / Ghostty / claude -p …) — subdued, it's
+            // orientation, not state.
+            if let rt = row.runtime { chips.addArrangedSubview(tinyChip(rt, color: Cat.subtext)) }
             // 🅿 a live worker parked idle — holding memory, likely forgotten (see parkedChip).
             if let parked = parkedChip(row) { chips.addArrangedSubview(tinyChip(parked.label, color: parked.color, symbol: "parkingsign")) }
             inner.addArrangedSubview(chips)

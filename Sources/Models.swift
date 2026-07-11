@@ -136,6 +136,15 @@ struct AgentRow {
                                    // no terminal to open and no attach route (verified 2026-07-10)
     var editorBundleId: String? = nil  // .vscode only: the hosting editor's __CFBundleIdentifier
                                        // (com.microsoft.VSCode / a fork's id) — the `open -b` target
+    var termProgram: String? = nil     // TERM_PROGRAM from the session's env — names the terminal a
+                                       // bare (.other) session lives in
+    var entrypoint: String? = nil      // registry entrypoint: "cli" / "sdk-cli" (`claude -p`)
+
+    // What this session runs on, as chip text ("zellij" / "VS Code" / "Ghostty" / "claude -p" …).
+    var runtime: String? {
+        runtimeLabel(backend: backend, termProgram: termProgram, editorBundleId: editorBundleId,
+                     entrypoint: entrypoint, isBackground: isBackground, isSubagent: isSubagent)
+    }
 
     // Can Shepherd deliver keystrokes to this row? A single-pane zellij session (B1), or a zellij
     // pane we can target by id (multi-pane — needs an attached client at send time; deliverText
@@ -306,11 +315,11 @@ func liveBlocked(job: DaemonJob?, registry: SessionRegistryEntry?) -> Bool {
 // a home to jump to and a parent to nest under — the two things the status hook otherwise supplies.
 func claudeAgentRow(_ e: ClaudeAgentEntry, updatedAt: Date?, git g: GitFacts? = nil,
                     daemon: DaemonJob? = nil, env: EnvFacts = EnvFacts(),
-                    underZellij: Bool? = nil) -> AgentRow {
+                    underZellij: Bool? = nil, entrypoint: String? = nil) -> AgentRow {
     let dirName = (e.cwd as NSString).lastPathComponent
     let parentName = ((e.cwd as NSString).deletingLastPathComponent as NSString).lastPathComponent
     let backend = resolveBackend(zellijSession: env.zellijSession, termProgram: env.termProgram,
-                                 underZellij: underZellij)
+                                 underZellij: underZellij, entrypoint: entrypoint)
     return AgentRow(sessionId: e.sessionId, model: nil, contextPct: nil,
                     status: daemon.map(statusFromDaemon) ?? statusFromClaudeAgent(e),
                     label: e.name ?? dirName, cwd: e.cwd, dirName: dirName,
@@ -330,7 +339,8 @@ func claudeAgentRow(_ e: ClaudeAgentEntry, updatedAt: Date?, git g: GitFacts? = 
                     parentSessionId: env.parentSessionId, subagents: [], zellijSendable: false,
                     updatedAt: updatedAt, lastMessage: nil, startedAt: e.startedAt,
                     isBackground: e.isBackground, pid: e.pid, needs: daemon?.needs,
-                    editorBundleId: backend == .vscode ? env.bundleId : nil)
+                    editorBundleId: backend == .vscode ? env.bundleId : nil,
+                    termProgram: env.termProgram, entrypoint: entrypoint)
 }
 
 // MARK: - Agent-tool subagents (teammates)
@@ -576,7 +586,14 @@ enum Backend { case zellij, vscode, other }
 // (zellij vars are real). Env alone cannot tell them apart; `underZellij` — is the claude process
 // a descendant of a zellij server (zellijDescendant) — breaks the tie. nil = ancestry unknown
 // (ps failed): prefer .vscode, the case actually observed in the wild.
-func resolveBackend(zellijSession: String?, termProgram: String?, underZellij: Bool? = nil) -> Backend {
+//
+// `entrypoint` (the registry's, measured 2026-07-12) outranks every env fact: a Claude Code
+// extension-panel session ("claude-vscode") is spawned directly by the extension — no integrated
+// terminal, so TERM_PROGRAM stays whatever shell cold-started VS Code and any zellij vars are that
+// shell's leak. Env would classify it as a stranger's pane; the entrypoint says where it really is.
+func resolveBackend(zellijSession: String?, termProgram: String?, underZellij: Bool? = nil,
+                    entrypoint: String? = nil) -> Backend {
+    if entrypoint == "claude-vscode" { return .vscode }
     if termProgram == "vscode" {
         if zellijSession != nil, underZellij == true { return .zellij }
         return .vscode
@@ -610,6 +627,39 @@ func editorDisplayName(_ bundleId: String?) -> String {
     case "com.microsoft.VSCodeInsiders": return "VS Code Insiders"
     case "com.vscodium", "com.vscodium.VSCodium": return "VSCodium"
     default: return "VS Code"
+    }
+}
+
+// Display name for a TERM_PROGRAM value. Only the terminals actually met on this machine get a
+// prettier name; anything unknown passes through verbatim so a new terminal names itself instead
+// of vanishing.
+func terminalDisplayName(_ termProgram: String?) -> String? {
+    switch termProgram {
+    case nil: return nil
+    case "ghostty": return "Ghostty"
+    case "iTerm.app": return "iTerm"
+    case "Apple_Terminal": return "Terminal"
+    case let other?: return other
+    }
+}
+
+// What a session runs ON, as chip text: the multiplexer ("zellij"), the hosting editor ("VS Code" /
+// "Cursor"), the bare terminal app ("Ghostty"), or the headless mode it was launched in ("claude -p"
+// — the registry's entrypoint, the one fact env can't supply: a headless run still inherits its
+// shell's TERM_PROGRAM, so entrypoint outranks the terminal). "claude-vscode" (the extension panel)
+// falls through instead: its home is the editor, which the backend switch already names. nil when
+// there is nothing to say: a background worker (the BG chip already covers it, and its env is the
+// daemon's anyway) or a subagent (it runs inside its parent's process).
+func runtimeLabel(backend: Backend, termProgram: String?, editorBundleId: String?,
+                  entrypoint: String?, isBackground: Bool, isSubagent: Bool) -> String? {
+    if isBackground || isSubagent { return nil }
+    if let ep = entrypoint, !ep.isEmpty, ep != "cli", ep != "claude-vscode" {
+        return ep == "sdk-cli" ? "claude -p" : ep
+    }
+    switch backend {
+    case .zellij: return "zellij"
+    case .vscode: return editorDisplayName(editorBundleId)
+    case .other: return terminalDisplayName(termProgram)
     }
 }
 

@@ -76,9 +76,22 @@ EOF
 chmod +x "$BIN/claude" "$BIN/gh"
 
 # ── live pids for the registry (the registry skips dead pids) ─────────────────
+# Each sleep is exec'd with an explicit env: `ps -wwEp` reads the env captured at exec, which is
+# where the board's runtime chips (zellij / VS Code / Ghostty) and the </> mark come from. Rows
+# 1–3 pose as zellij panes under Ghostty; row 4 poses as a VS Code integrated terminal — so the
+# screenshots show the chips deterministically instead of leaking the invoking shell's env.
+# gsleep (homebrew coreutils), NOT /bin/sleep: macOS hides an Apple platform binary's env from
+# `ps -E` entirely (measured 2026-07-12), so a /bin/sleep-backed row can never wear a chip.
+SLEEPBIN=$(command -v gsleep || echo /bin/sleep)
+[ "$SLEEPBIN" = /bin/sleep ] && echo "warn: gsleep not found — runtime chips won't show (brew install coreutils)" >&2
 pkill -f "sleep 86340" 2>/dev/null || true
 PIDS=()
-for _ in 1 2 3 4; do sleep 86340 >/dev/null 2>&1 & PIDS+=($!); done
+for _ in 1 2 3; do
+  env -i ZELLIJ_SESSION_NAME=demo ZELLIJ_PANE_ID=7 TERM_PROGRAM=ghostty \
+    "$SLEEPBIN" 86340 >/dev/null 2>&1 & PIDS+=($!)
+done
+env -i TERM_PROGRAM=vscode __CFBundleIdentifier=com.microsoft.VSCode \
+  "$SLEEPBIN" 86340 >/dev/null 2>&1 & PIDS+=($!)
 disown -a 2>/dev/null || true
 
 # ── registry + transcripts + subagent files ───────────────────────────────────
@@ -195,9 +208,14 @@ for i, s in enumerate(S):
         with open(os.path.join(sub, "agent-demo1.meta.json"), "w") as f:
             json.dump(dict(agentType="Explore", name=s["subagent"]["name"],
                            description=s["subagent"]["name"]), f, ensure_ascii=False)
+        # model + usage on the line: that's where the nested card's model chip (HAIKU — an
+        # Explore subagent on the cheap tier, the playbook's own advice) and ctx % come from.
         with open(os.path.join(sub, "agent-demo1.jsonl"), "w") as f:
-            f.write(json.dumps(dict(type="assistant", message=dict(role="assistant", content=[
-                dict(type="tool_use", name="Grep", input=dict(pattern="enqueueSend"))])),
+            f.write(json.dumps(dict(type="assistant", message=dict(role="assistant",
+                model="claude-haiku-4-5-20251001",
+                usage=dict(input_tokens=600, cache_read_input_tokens=40000,
+                           cache_creation_input_tokens=2400),
+                content=[dict(type="tool_use", name="Grep", input=dict(pattern="enqueueSend"))])),
                 ensure_ascii=False) + "\n")
 
 print("demo pids:", pids)

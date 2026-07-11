@@ -107,7 +107,7 @@
       <div class="mockcard">
         <div class="banner"><span class="num" style="background:#11111b;color:var(--peach)">1</span> ? WAITING — 4m</div>
         <div class="ln"><span class="num">2</span><span class="dot-demo" style="background:var(--peach)"></span><strong style="font-size:12.5px">Migrate checkout to the new payments API</strong>&nbsp;<span style="color:var(--faint)">#2894</span></div>
-        <div class="ln"><span class="num">3</span><span class="chip-demo" style="background:rgba(249,226,175,.18);color:var(--yellow)">PLAN</span><span class="chip-demo" style="background:rgba(203,166,247,.18);color:var(--mauve)">OPUS</span></div>
+        <div class="ln"><span class="num">3</span><span class="chip-demo" style="background:rgba(249,226,175,.18);color:var(--yellow)">PLAN</span><span class="chip-demo" style="background:rgba(203,166,247,.18);color:var(--mauve)">OPUS</span><span class="chip-demo" style="background:rgba(166,173,200,.18);color:#a6adc8">zellij</span></div>
         <div class="ln"><span class="num">4</span><span style="color:var(--peach);font-weight:650;font-size:11.5px">? Apply the schema change to staging first?</span></div>
         <div class="ln"><span class="num">5</span><span class="chip-demo" style="background:rgba(148,226,213,.14);color:var(--teal)">PR #3262 ✓ ↗</span><span class="chip-demo" style="background:rgba(137,180,250,.14);color:var(--blue)">Artifact ↗</span></div>
         <div class="ln"><span class="num">6</span><span style="color:var(--faint);font-size:10.5px">11m&ensp;±6&ensp;·&ensp;◔ 17%</span></div>
@@ -117,7 +117,7 @@
       <ul class="legend">
         <li><span class="num">1</span><span><strong>Status banner</strong> — only on blocked or errored cards: what state it's in and for how long. Long-ignored questions get a “neglected” tag.</span></li>
         <li><span class="num">2</span><span><strong>Status dot &amp; title</strong> — the dot is the status color (below). The title is the AI-generated task name from the transcript — the same title Claude Code gives the terminal tab. <code>#N</code> is the GitHub issue, read from the branch name.</span></li>
-        <li><span class="num">3</span><span><strong>Chips</strong> — Claude's permission mode (<code>PLAN</code> = plan-only, <code>⏵⏵ EDITS</code> = auto-accept edits, <code>BYPASS</code> = all prompts skipped) and the model tier in use.</span></li>
+        <li><span class="num">3</span><span><strong>Chips</strong> — Claude's permission mode (<code>PLAN</code> = plan-only, <code>⏵⏵ EDITS</code> = auto-accept edits, <code>BYPASS</code> = all prompts skipped), the model tier in use, and where the session runs (<code>zellij</code>, <code>VS Code</code>, <code>Ghostty</code>, a headless <code>claude -p</code> …).</span></li>
         <li><span class="num">4</span><span><strong>The question</strong> — the exact decision the agent is waiting on. Right-click → <strong>Reply</strong> answers it from here (<a href="actions.html#reply">how</a>).</span></li>
         <li><span class="num">5</span><span><strong>Deliverables</strong> — a unified PR badge (number + CI: ✓ pass, ✕ fail, dashed circle running; click to open) and links to Artifacts the session published.</span></li>
         <li><span class="num">6</span><span><strong>Meta</strong> — elapsed time, uncommitted changed-file count (<code>±6</code>), and the context-window pie. Hover the card's bottom edge for exact tokens left.</span></li>
@@ -128,7 +128,7 @@
       <div class="mockcard">
         <div class="banner"><span class="num" style="background:#11111b;color:var(--peach)">1</span> ? 応答待ち — 4分</div>
         <div class="ln"><span class="num">2</span><span class="dot-demo" style="background:var(--peach)"></span><strong style="font-size:12.5px">決済APIの移行: checkout を新エンドポイントへ</strong>&nbsp;<span style="color:var(--faint)">#2894</span></div>
-        <div class="ln"><span class="num">3</span><span class="chip-demo" style="background:rgba(249,226,175,.18);color:var(--yellow)">PLAN</span><span class="chip-demo" style="background:rgba(203,166,247,.18);color:var(--mauve)">OPUS</span></div>
+        <div class="ln"><span class="num">3</span><span class="chip-demo" style="background:rgba(249,226,175,.18);color:var(--yellow)">PLAN</span><span class="chip-demo" style="background:rgba(203,166,247,.18);color:var(--mauve)">OPUS</span><span class="chip-demo" style="background:rgba(166,173,200,.18);color:#a6adc8">zellij</span></div>
         <div class="ln"><span class="num">4</span><span style="color:var(--peach);font-weight:650;font-size:11.5px">? スキーマ変更を先に staging へ適用しますか？</span></div>
         <div class="ln"><span class="num">5</span><span class="chip-demo" style="background:rgba(148,226,213,.14);color:var(--teal)">PR #3262 ✓ ↗</span><span class="chip-demo" style="background:rgba(137,180,250,.14);color:var(--blue)">Artifact ↗</span></div>
         <div class="ln"><span class="num">6</span><span style="color:var(--faint);font-size:10.5px">11m&ensp;±6&ensp;·&ensp;◔ 17%</span></div>
@@ -138,7 +138,7 @@
       <ul class="legend">
         <li><span class="num">1</span><span><strong>ステータスバナー</strong> — 応答待ちやエラー状態のカードにのみ表示され、状態とその継続時間を示します。長く放置された質問には「放置」タグが付きます。</span></li>
         <li><span class="num">2</span><span><strong>ステータスドット & タイトル</strong> — ドットはステータスの色（下記参照）です。タイトルは transcript から生成された AI 生成のタスク名で、Claude Code がターミナルタブに付けるものと同じです。<code>#N</code> はブランチ名から読み取った GitHub issue 番号です。</span></li>
-        <li><span class="num">3</span><span><strong>チップ</strong> — Claude の権限モード（<code>PLAN</code> = プランのみ、<code>⏵⏵ EDITS</code> = 編集自動承認、<code>BYPASS</code> = すべてのプロンプトをスキップ）と、使用中のモデルティア。</span></li>
+        <li><span class="num">3</span><span><strong>チップ</strong> — Claude の権限モード（<code>PLAN</code> = プランのみ、<code>⏵⏵ EDITS</code> = 編集自動承認、<code>BYPASS</code> = すべてのプロンプトをスキップ）、使用中のモデルティア、セッションの実行環境（<code>zellij</code>・<code>VS Code</code>・<code>Ghostty</code>・headless の <code>claude -p</code> など）。</span></li>
         <li><span class="num">4</span><span><strong>質問</strong> — エージェントが待っている決定事項そのものです。右クリック → <strong>回答する</strong>でここから直接答えられます（<a href="actions.html#reply">方法</a>）。</span></li>
         <li><span class="num">5</span><span><strong>成果物</strong> — 統合 PR バッジ（番号 + CI: ✓ 成功、✕ 失敗、破線の丸は実行中。クリックで開く）と、セッションが公開した Artifact へのリンク。</span></li>
         <li><span class="num">6</span><span><strong>メタ情報</strong> — 経過時間、未コミットの変更ファイル数（<code>±6</code>）、コンテキストゲージの円グラフ。カード下端をホバーすると残りトークン数の正確な値が見られます。</span></li>
@@ -183,11 +183,12 @@
         <tr><td>#123</td><td>The GitHub issue being worked on (from the branch name or label).</td></tr>
         <tr><td>PLAN / ⏵⏵ EDITS / BYPASS</td><td>Claude's permission mode: plan-only / edits auto-accepted / all prompts bypassed.</td></tr>
         <tr><td>FABLE / OPUS / …</td><td>The model in use. A board where every chip is the same color usually means nobody chose models — see <a href="playbook.html">the playbook</a>.</td></tr>
+        <tr><td>zellij / VS Code / Ghostty / claude -p</td><td>What the session runs on: a zellij pane, a VS Code-family integrated terminal, a bare terminal app, or a headless <code>claude -p</code> run. Background workers wear the BG chip instead.</td></tr>
         <tr><td>±8</td><td>Uncommitted changed files in that worktree.</td></tr>
         <tr><td>◥ (amber dog-ear)</td><td>Top-right fold = the worktree has uncommitted changes. Fine while working; a reminder before closing.</td></tr>
         <tr><td>◔ 72%</td><td>Context-window usage — yellow ≥ 60%, red ≥ 85%. Hover for tokens remaining.</td></tr>
         <tr><td>stale?</td><td>Says “working” but the transcript hasn't moved in 2+ minutes — probably interrupted (Esc) and actually stopped. Attach and check.</td></tr>
-        <tr><td>&lt;/&gt; code brackets</td><td>The session lives in a VS Code (or Cursor/Windsurf) integrated terminal — clicking the card opens that editor instead of a terminal.</td></tr>
+        <tr><td>&lt;/&gt; code brackets</td><td>The session lives in a VS Code-family integrated terminal or the Claude Code extension panel — clicking the card opens that editor instead of a terminal. (Built to cover Cursor/Windsurf-style forks too, though those are untested.)</td></tr>
         <tr><td>📡 antenna</td><td>Remote-control (<code>/remote-control</code>) is enabled for this pane.</td></tr>
         <tr><td>📎 sent</td><td>A dropped file was just sent to this session.</td></tr>
         <tr><td>✨ child working</td><td>A subagent or child session of this card is running (the child's own card carries the same mark).</td></tr>
@@ -201,11 +202,12 @@
         <tr><td>#123</td><td>対応中の GitHub issue（ブランチ名またはラベルから取得）。</td></tr>
         <tr><td>PLAN / ⏵⏵ EDITS / BYPASS</td><td>Claude の権限モード: プランのみ / 編集自動承認 / すべてのプロンプトをバイパス。</td></tr>
         <tr><td>FABLE / OPUS / …</td><td>使用中のモデル。盤面のチップが全部同じ色なのは、たいてい誰もモデルを選んでいないサインです — <a href="playbook.html">群れの導き方</a>を参照。</td></tr>
+        <tr><td>zellij / VS Code / Ghostty / claude -p</td><td>セッションの実行環境: zellij ペイン、VS Code 系の統合ターミナル、素のターミナルアプリ、または headless の <code>claude -p</code> 実行。バックグラウンドワーカーは代わりに BG チップが付きます。</td></tr>
         <tr><td>±8</td><td>その worktree の未コミットの変更ファイル数。</td></tr>
         <tr><td>◥（琥珀の折り目）</td><td>右上の折り目は worktree に未コミットの変更があることを示します。作業中は問題ありません。閉じる前の確認用です。</td></tr>
         <tr><td>◔ 72%</td><td>コンテキストウィンドウの使用率 — 60%以上で yellow、85%以上で red。ホバーで残りトークン数を確認できます。</td></tr>
         <tr><td>stale?</td><td>「作業中」と表示されていても transcript が2分以上動いていない状態 — おそらく中断（Esc）されて実際は停止しています。attach して確認してください。</td></tr>
-        <tr><td>&lt;/&gt; コードブラケット</td><td>VS Code（または Cursor / Windsurf）の統合ターミナルで動くセッション — カードのクリックはターミナルではなくそのエディタを開きます。</td></tr>
+        <tr><td>&lt;/&gt; コードブラケット</td><td>VS Code 系の統合ターミナルまたは Claude Code 拡張パネルで動くセッション — カードのクリックはターミナルではなくそのエディタを開きます。（Cursor / Windsurf 系フォークにも対応する設計ですが、フォークでの動作は未検証です。）</td></tr>
         <tr><td>📡 アンテナ</td><td>このペインで遠隔操作（<code>/remote-control</code>）が有効になっています。</td></tr>
         <tr><td>📎 送信済み</td><td>ドロップしたファイルがこのセッションに送信されたことを示します。</td></tr>
         <tr><td>✨ 子が作業中</td><td>このカードのサブエージェントまたは子セッションが実行中です（子カード自体にも同じマークが付きます）。</td></tr>

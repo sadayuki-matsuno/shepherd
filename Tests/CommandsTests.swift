@@ -61,7 +61,7 @@ func runCommandsTests() {
         func write(_ name: String, _ json: String) {
             try? json.write(toFile: dir + "/" + name, atomically: true, encoding: .utf8)
         }
-        write("a.json", #"{"pid":\#(alive),"sessionId":"sess-a","cwd":"/tmp","kind":"interactive","name":"shep-1","status":"waiting","waitingFor":"permission prompt","startedAt":1783600000000,"statusUpdatedAt":1783600001000}"#)
+        write("a.json", #"{"pid":\#(alive),"sessionId":"sess-a","cwd":"/tmp","kind":"interactive","entrypoint":"sdk-cli","name":"shep-1","status":"waiting","waitingFor":"permission prompt","startedAt":1783600000000,"statusUpdatedAt":1783600001000}"#)
         write("dead.json", #"{"pid":99999999,"sessionId":"sess-dead","cwd":"/tmp","kind":"interactive"}"#)
         write("broken.json", "{not json")
         write("nosession.json", #"{"pid":\#(alive)}"#)
@@ -74,6 +74,8 @@ func runCommandsTests() {
         expectEq(entries.first?.name, "shep-1")
         expectEq(entries.first?.status, "waiting")
         expectEq(entries.first?.waitingFor, "permission prompt")
+        expectEq(entries.first?.entrypoint, "sdk-cli",
+                 "entrypoint tells `claude -p` (sdk-cli) from the interactive REPL (cli) — measured 2026-07-11")
         expectEq(entries.first.map { statusFromRegistry($0) }, "blocked")
         expectEq(entries.first?.updatedAt.map { Int($0.timeIntervalSince1970) }, 1783600001,
                  "statusUpdatedAt (ms) outranks updatedAt and converts to seconds")

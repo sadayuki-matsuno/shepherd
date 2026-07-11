@@ -88,14 +88,14 @@
     <h2 lang="ja">クリック: セッションへジャンプ</h2>
     <ul lang="en">
       <li><strong>zellij session</strong> — attaches the zellij session in your terminal and focuses the exact pane, even in a multi-pane tab.</li>
-      <li><strong>VS Code integrated terminal</strong> — raises the editor window that has the session's folder open (works for Cursor/Windsurf-style forks too — the card remembers which app hosts it). These cards wear a small <code>&lt;/&gt;</code> mark.</li>
+      <li><strong>VS Code integrated terminal or Claude Code extension panel</strong> — raises the editor window that has the session's folder open. The card remembers which app hosts it, so Cursor/Windsurf-style forks are covered by design (untested — no fork on the bench yet). These cards wear a small <code>&lt;/&gt;</code> mark.</li>
       <li><strong>Background worker</strong> — opens its live TUI with <code>claude attach &lt;id&gt;</code> in a new terminal window. A <em>finished</em> record asks first, then reopens the session where it left off.</li>
       <li><strong>Bare-terminal session</strong> — Shepherd can see it but can't know which window it lives in; the card says so instead of jumping.</li>
       <li><strong>Teammate / subagent</strong> — runs inside its parent's process; there is nothing to attach to. Steer it from the parent session.</li>
     </ul>
     <ul lang="ja">
       <li><strong>zellij セッション</strong> — ターミナルでその zellij セッションに attach し、マルチペインのタブでも該当ペインに正確にフォーカスします。</li>
-      <li><strong>VS Code 統合ターミナル</strong> — そのセッションのフォルダを開いているエディタウィンドウを前面に出します（Cursor / Windsurf 系のフォークにも対応 — どのアプリに居るかをカードが覚えています）。このカードには小さな <code>&lt;/&gt;</code> マークが付きます。</li>
+      <li><strong>VS Code 統合ターミナル / Claude Code 拡張パネル</strong> — そのセッションのフォルダを開いているエディタウィンドウを前面に出します。どのアプリに居るかをカードが覚えているため、Cursor / Windsurf 系のフォークにも対応する設計です（フォークでの動作は未検証）。このカードには小さな <code>&lt;/&gt;</code> マークが付きます。</li>
       <li><strong>バックグラウンドワーカー</strong> — 新しいターミナルウィンドウで <code>claude attach &lt;id&gt;</code> を実行し、ライブ TUI を開きます。<em>終了済み</em>の記録はまず確認を挟み、そのセッションを中断した場所から再開します。</li>
       <li><strong>素のターミナルのセッション</strong> — Shepherd はその存在を認識できますが、どのウィンドウに居るかは分からないため、ジャンプせずカードにその旨を表示します。</li>
       <li><strong>teammate / サブエージェント</strong> — 親のプロセス内で動くため、attach する対象がありません。親セッションから操作してください。</li>
