@@ -76,9 +76,27 @@ EOF
 chmod +x "$BIN/claude" "$BIN/gh"
 
 # ── live pids for the registry (the registry skips dead pids) ─────────────────
+# /bin/sleep is an Apple platform binary, and macOS hides platform binaries' env from
+# `ps -E` (KERN_PROCARGS2) — so Shepherd could never read ZELLIJ_* off the pid and the
+# blocked card would not be replyable. A homebrew fish wrapper is a normal binary whose
+# env stays readable; stage via dev/demo-director.sh inside a zellij pane and the pids
+# carry that pane's ZELLIJ_SESSION_NAME / ZELLIJ_PANE_ID (verified 2026-07-11).
+SLEEPER="$(command -v fish || true)"
 pkill -f "sleep 86340" 2>/dev/null || true
 PIDS=()
-for _ in 1 2 3 4; do sleep 86340 >/dev/null 2>&1 & PIDS+=($!); done
+for i in 1 2 3 4; do
+  if [ -n "$SLEEPER" ] && [ "$i" = 4 ]; then
+    # the 4th pid backs the lobby card (S[3]): stage it as a VS Code terminal session
+    # (TERM_PROGRAM=vscode + __CFBundleIdentifier, zellij vars dropped) so the board
+    # shows the .vscode backend chip alongside the zellij ones
+    env -u ZELLIJ -u ZELLIJ_SESSION_NAME -u ZELLIJ_PANE_ID \
+      TERM_PROGRAM=vscode __CFBundleIdentifier=com.microsoft.VSCode \
+      "$SLEEPER" -c 'sleep 86340' >/dev/null 2>&1 &
+  elif [ -n "$SLEEPER" ]; then "$SLEEPER" -c 'sleep 86340' >/dev/null 2>&1 &
+  else sleep 86340 >/dev/null 2>&1 &
+  fi
+  PIDS+=($!)
+done
 disown -a 2>/dev/null || true
 
 # ── registry + transcripts + subagent files ───────────────────────────────────
@@ -196,8 +214,13 @@ for i, s in enumerate(S):
             json.dump(dict(agentType="Explore", name=s["subagent"]["name"],
                            description=s["subagent"]["name"]), f, ensure_ascii=False)
         with open(os.path.join(sub, "agent-demo1.jsonl"), "w") as f:
-            f.write(json.dumps(dict(type="assistant", message=dict(role="assistant", content=[
-                dict(type="tool_use", name="Grep", input=dict(pattern="enqueueSend"))])),
+            # model+usage ride the same assistant line as the Grep tool_use: the card's activity
+            # label stays "Grep: enqueueSend" while the chip/gauge readers find haiku + context
+            f.write(json.dumps(dict(type="assistant", message=dict(
+                role="assistant", model="claude-haiku-4-5-20251001",
+                usage=dict(input_tokens=250, cache_read_input_tokens=42000,
+                           cache_creation_input_tokens=1800),
+                content=[dict(type="tool_use", name="Grep", input=dict(pattern="enqueueSend"))])),
                 ensure_ascii=False) + "\n")
 
 print("demo pids:", pids)
