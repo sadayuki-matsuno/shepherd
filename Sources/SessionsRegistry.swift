@@ -28,6 +28,8 @@ struct SessionRegistryEntry {
     let waitingFor: String?   // present when status == "waiting"
     let startedAt: Date?
     let updatedAt: Date?
+    var entrypoint: String? = nil  // "cli" (interactive REPL) / "sdk-cli" (`claude -p` and SDK runs,
+                                   // measured 2026-07-11) — the only source that tells them apart
 }
 
 // Overridable for tests, like statusDir / claudeProjectsDir.
@@ -72,7 +74,8 @@ func readSessionsRegistry() -> [SessionRegistryEntry] {
             status: o["status"] as? String,
             waitingFor: o["waitingFor"] as? String,
             startedAt: ms("startedAt"),
-            updatedAt: ms("statusUpdatedAt") ?? ms("updatedAt")))
+            updatedAt: ms("statusUpdatedAt") ?? ms("updatedAt"),
+            entrypoint: o["entrypoint"] as? String))
     }
     return out
 }

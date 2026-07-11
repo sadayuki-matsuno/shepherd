@@ -12,8 +12,38 @@ extension AppDelegate {
         guard !deletingSessions.contains(row.sessionId) else { return }
         if row.backend == .zellij, let zs = row.zellijSession {
             jumpToZellij(zs, paneId: row.zellijPaneId)
+        } else if row.backend == .vscode {
+            jumpToVSCode(row)
         } else if row.isBackground {
             attachBackground(row)
+        }
+    }
+
+    // Jump to a session living in a VSCode-family integrated terminal (2026-07-11). VSCode reuses
+    // the window that already has a folder open, so `open -b <bundle> <cwd>` raises the session's
+    // window in the common case and opens the folder in a new one otherwise (a session whose cwd is
+    // a SUBDIRECTORY of the open workspace gets a fresh window — accepted, there's no way to ask
+    // VSCode "which window holds this path"). The bundle id comes from the session's own
+    // __CFBundleIdentifier, so Cursor/Windsurf forks jump to their own app with no lookup table.
+    // Same cooperative-activation dance as Ghostty: yield first, or macOS raises the window but
+    // keeps keyboard focus elsewhere (CLAUDE.md 地雷).
+    func jumpToVSCode(_ row: AgentRow) {
+        if replyPopover != nil { closeReply(); return }
+        if repoPickerPopover != nil { closeRepoPicker(); return }
+        if dropPopover != nil { dropPopover?.close(); return }
+        let bundleId = row.editorBundleId ?? "com.microsoft.VSCode"
+        if #available(macOS 14.0, *) {
+            NSApp.yieldActivation(toApplicationWithBundleIdentifier: bundleId)
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let out = runCommand(["/usr/bin/open", "-b", bundleId, row.cwd], ignoreExit: false)
+            self.activateLog("vscode jump [\(bundleId)] cwd=\(row.cwd) result=\(out == nil ? "failed" : "ok")")
+            if out == nil {
+                DispatchQueue.main.async {
+                    self.flashHint(L("\(editorDisplayName(bundleId)) を開けませんでした（アプリが見つかりません）",
+                                     "couldn't open \(editorDisplayName(bundleId)) — is it installed?"))
+                }
+            }
         }
     }
 

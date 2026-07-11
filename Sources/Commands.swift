@@ -110,7 +110,9 @@ func findAttachClient(short: String) -> AttachClient? {
 
 // `ps -wwEp <pid>` appends the process's environment to its command line, space separated. Only the
 // KEY=VALUE tokens we care about are parsed — a value containing spaces would split, but the vars we
-// read (ZELLIJ_*, CLAUDE_*, TERM_PROGRAM) never do. Empty on failure (a process that exited, or one
+// read (ZELLIJ_*, CLAUDE_*, TERM_PROGRAM, __CFBundleIdentifier) never do. Keys may mix case
+// (__CFBundleIdentifier), so the key filter admits any letter — a stray command-line `foo=bar`
+// token lands in the dict but nothing reads it. Empty on failure (a process that exited, or one
 // owned by another user). The env is the block captured at exec: the zellij and parent-session vars
 // are set before claude starts, so they are exactly what the status hook would have snapshotted.
 func processEnvironment(pid: Int32) -> [String: String] {
@@ -138,12 +140,28 @@ func processEnvironments(pids: [Int32]) -> [Int32: [String: String]] {
         for token in trimmed[sp...].split(separator: " ") {
             guard let eq = token.firstIndex(of: "="), eq != token.startIndex else { continue }
             let key = String(token[..<eq])
-            guard key.allSatisfy({ $0.isUppercase || $0.isNumber || $0 == "_" }) else { continue }
+            guard key.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" }) else { continue }
             env[key] = String(token[token.index(after: eq)...])
         }
         result[pid] = env
     }
     return result
+}
+
+// The whole process table in one `ps` call: pid → (ppid, comm). Feeds zellijDescendant, which is
+// how a session carrying BOTH `TERM_PROGRAM=vscode` and leaked ZELLIJ_* vars gets told apart from
+// zellij genuinely running inside a VSCode terminal (see resolveBackend). Fetched per refresh only
+// when some row actually presents that ambiguity. `comm` is the executable path — it can contain
+// spaces, so the line splits on the first two columns only.
+func processTable() -> [Int32: (ppid: Int32, comm: String)] {
+    guard let out = runCommand(["/bin/ps", "-axo", "pid=,ppid=,comm="]) else { return [:] }
+    var table: [Int32: (ppid: Int32, comm: String)] = [:]
+    for line in out.split(separator: "\n") {
+        let cols = line.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
+        guard cols.count == 3, let pid = Int32(cols[0]), let ppid = Int32(cols[1]) else { continue }
+        table[pid] = (ppid, String(cols[2]))
+    }
+    return table
 }
 
 // MARK: - zellij send path (matrix B1)

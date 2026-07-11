@@ -437,6 +437,139 @@ func runModelsTests() {
         expectEq(enriched.parentSessionId, "parent-1", "and it nests under its spawner")
     }
 
+    test("envFacts: the terminal facts ride along, but never for a background worker") {
+        let env = ["TERM_PROGRAM": "vscode", "__CFBundleIdentifier": "com.microsoft.VSCode"]
+        let interactive = envFacts(env, isBackground: false)
+        expectEq(interactive.termProgram, "vscode")
+        expectEq(interactive.bundleId, "com.microsoft.VSCode")
+        let worker = envFacts(env, isBackground: true)
+        expectNil(worker.termProgram, "a worker's env is the daemon's, naming a terminal it isn't in")
+        expectNil(worker.bundleId)
+    }
+
+    test("resolveBackend: TERM_PROGRAM decides, leaked zellij vars don't (measured 2026-07-11)") {
+        expect(resolveBackend(zellijSession: nil, termProgram: "vscode") == .vscode,
+               "a Dock-launched VSCode terminal is the clean case")
+        expect(resolveBackend(zellijSession: "cactus", termProgram: "ghostty") == .zellij,
+               "zellij passes the HOST terminal's TERM_PROGRAM through — ghostty means a real pane")
+        expect(resolveBackend(zellijSession: nil, termProgram: nil) == .other,
+               "neither fact → display-only, as before")
+        // The ambiguous combination: a VSCode cold-started from a zellij pane leaks ZELLIJ_* into
+        // its terminals. Ancestry breaks the tie; unknown ancestry prefers the case seen in the wild.
+        expect(resolveBackend(zellijSession: "cactus", termProgram: "vscode", underZellij: false) == .vscode,
+               "leaked zellij vars in a VSCode terminal must not route jumps at a stranger's pane")
+        expect(resolveBackend(zellijSession: "cactus", termProgram: "vscode", underZellij: true) == .zellij,
+               "zellij genuinely running inside a VSCode terminal is still a zellij row")
+        expect(resolveBackend(zellijSession: "cactus", termProgram: "vscode", underZellij: nil) == .vscode,
+               "no ancestry answer → the measured leak case wins")
+    }
+
+    test("resolveBackend: a Claude Code extension-panel session is vscode by entrypoint alone") {
+        // Measured 2026-07-12: the extension panel spawns claude directly (no integrated terminal),
+        // so TERM_PROGRAM stays whatever shell cold-started VS Code (ghostty) and leaked zellij vars
+        // ride along — env alone classifies it as a stranger's zellij pane. The registry's
+        // entrypoint ("claude-vscode") is the one clean fact, and it must win outright.
+        expect(resolveBackend(zellijSession: "cactus", termProgram: "ghostty",
+                              entrypoint: "claude-vscode") == .vscode,
+               "leaked zellij + host-terminal TERM_PROGRAM must not route the panel session at a pane")
+        expect(resolveBackend(zellijSession: nil, termProgram: nil, entrypoint: "claude-vscode") == .vscode,
+               "a Dock-launched VS Code's panel session has no terminal facts at all")
+        expect(resolveBackend(zellijSession: "cactus", termProgram: "ghostty", entrypoint: "cli") == .zellij,
+               "a normal REPL in a pane keeps its zellij verdict")
+    }
+
+    test("zellijDescendant: the ancestor walk tells a pane's claude from a VSCode terminal's") {
+        // pid 1 launchd; 10 zellij server; 11 fish (pane); 12 claude-in-pane;
+        // 20 Electron (VSCode); 21 Code Helper; 22 zsh; 23 claude-in-vscode.
+        let table: [Int32: (ppid: Int32, comm: String)] = [
+            10: (1, "/opt/homebrew/bin/zellij"), 11: (10, "/opt/homebrew/bin/fish"), 12: (11, "claude"),
+            20: (1, "/Applications/Visual Studio Code.app/Contents/MacOS/Electron"),
+            21: (20, "/Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper.app/Contents/MacOS/Code Helper"),
+            22: (21, "/bin/zsh"), 23: (22, "claude"),
+        ]
+        expect(zellijDescendant(pid: 12, table: table), "a pane's claude reaches the zellij server")
+        expect(!zellijDescendant(pid: 23, table: table), "a VSCode terminal's claude never sees zellij")
+        expect(!zellijDescendant(pid: 999, table: table), "an unknown pid is simply not a descendant")
+        var cyclic = table
+        cyclic[30] = (31, "claude"); cyclic[31] = (30, "/bin/zsh")
+        expect(!zellijDescendant(pid: 30, table: cyclic), "a cyclic snapshot terminates instead of spinning")
+    }
+
+    test("claudeAgentRow: a VSCode session becomes a jumpable card that keeps no leaked pane") {
+        let e = parseClaudeAgents(claudeAgentsFixture)[0]   // an interactive session
+        let row = claudeAgentRow(e, updatedAt: nil,
+                                 env: EnvFacts(zellijSession: "cactus", zellijPaneId: "89",
+                                               termProgram: "vscode",
+                                               bundleId: "com.microsoft.VSCode"),
+                                 underZellij: false)
+        expect(row.backend == .vscode, "TERM_PROGRAM=vscode with no zellij ancestry → a VSCode row")
+        expectEq(row.editorBundleId, "com.microsoft.VSCode", "the `open -b` target rides on the row")
+        expectNil(row.zellijSession, "the leaked zellij session is dropped with the verdict")
+        expectNil(row.zellijPaneId, "as is the pane — sendable must not target a stranger's pane")
+        expect(!row.sendable, "no key injection exists for a VSCode terminal")
+        expect(!row.replyable, "no reply UI either — the card click lands focus in the editor, answer there")
+        expectEq(row.runtime, "VS Code", "the runtime chip reads the editor name off the row's stored facts")
+    }
+
+    test("claudeAgentRow: an extension-panel session (measured 2026-07-12) jumps to its editor, not a pane") {
+        let e = parseClaudeAgents(claudeAgentsFixture)[0]   // an interactive session
+        let row = claudeAgentRow(e, updatedAt: nil,
+                                 env: EnvFacts(zellijSession: "implacable-cactus", zellijPaneId: "18",
+                                               termProgram: "ghostty",
+                                               bundleId: "com.microsoft.VSCode"),
+                                 entrypoint: "claude-vscode")
+        expect(row.backend == .vscode, "the registry entrypoint outranks every leaked env fact")
+        expectEq(row.editorBundleId, "com.microsoft.VSCode")
+        expectNil(row.zellijSession, "the cold-start pane's leaked session is dropped")
+        expectNil(row.zellijPaneId)
+        expect(!row.sendable && !row.replyable, "no key route into the panel either")
+        expectEq(row.runtime, "VS Code")
+    }
+
+    test("editorDisplayName: known forks get their name, everything else reads VS Code") {
+        expectEq(editorDisplayName("com.microsoft.VSCode"), "VS Code")
+        expectEq(editorDisplayName("com.todesktop.230313mzl4w4u92"), "Cursor")
+        expectEq(editorDisplayName("com.exafunction.windsurf"), "Windsurf")
+        expectEq(editorDisplayName(nil), "VS Code", "a missing bundle id still names the default jump target")
+    }
+
+    test("terminalDisplayName: TERM_PROGRAM values read as app names, unknown ones pass through") {
+        expectEq(terminalDisplayName("ghostty"), "Ghostty")
+        expectEq(terminalDisplayName("iTerm.app"), "iTerm")
+        expectEq(terminalDisplayName("Apple_Terminal"), "Terminal")
+        expectEq(terminalDisplayName("WezTerm"), "WezTerm")
+        expectEq(terminalDisplayName("tmux"), "tmux")
+        expectEq(terminalDisplayName("SomeFutureTerm"), "SomeFutureTerm",
+                 "a terminal we never met still names itself instead of vanishing")
+        expectNil(terminalDisplayName(nil), "no TERM_PROGRAM → no name to show")
+    }
+
+    test("runtimeLabel: names what a session runs on — multiplexer, editor, terminal, or headless") {
+        func label(backend: Backend = .other, term: String? = nil, editor: String? = nil,
+                   entrypoint: String? = "cli", bg: Bool = false, sub: Bool = false) -> String? {
+            runtimeLabel(backend: backend, termProgram: term, editorBundleId: editor,
+                         entrypoint: entrypoint, isBackground: bg, isSubagent: sub)
+        }
+        expectEq(label(backend: .zellij, term: "ghostty"), "zellij",
+                 "the multiplexer is the home, not the host terminal it passes through")
+        expectEq(label(backend: .vscode, term: "vscode", editor: "com.microsoft.VSCode"), "VS Code")
+        expectEq(label(backend: .vscode, term: "vscode", editor: "com.todesktop.230313mzl4w4u92"), "Cursor")
+        expectEq(label(term: "ghostty"), "Ghostty", "a bare terminal names the terminal app")
+        expectNil(label(), "no fact at all → no chip, not a guess")
+        expectEq(label(term: "ghostty", entrypoint: "sdk-cli"), "claude -p",
+                 "headless mode outranks the terminal it was typed into (registry entrypoint, measured 2026-07-11)")
+        expectEq(label(entrypoint: "future-mode"), "future-mode",
+                 "an entrypoint we never met surfaces verbatim instead of vanishing")
+        expectEq(label(backend: .vscode, editor: "com.microsoft.VSCode", entrypoint: "claude-vscode"), "VS Code",
+                 "an extension-panel session names its editor, not the raw entrypoint word")
+        expectEq(label(term: "ghostty", entrypoint: nil), "Ghostty",
+                 "the terminal fact is env-sourced — a missing registry entry must not hide it")
+        expectEq(label(term: "ghostty", entrypoint: ""), "Ghostty",
+                 "an empty entrypoint must not render a blank chip — fall through to the terminal")
+        expectNil(label(backend: .zellij, bg: true), "a worker's BG chip already says where it runs")
+        expectNil(label(backend: .zellij, sub: true), "a subagent runs inside its parent's process")
+    }
+
     test("statusFromDaemon: a non-empty needs means blocked even when state says running") {
         func job(state: String, needs: String?) -> DaemonJob {
             DaemonJob(short: "s", sessionId: "s", state: state, detail: nil, needs: needs, name: nil)
