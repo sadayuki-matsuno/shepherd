@@ -15,6 +15,10 @@ jobs:
   release:
     runs-on: macos-15
     timeout-minutes: 15
+    env:
+      # Fine-grained PAT with contents:write on sadayuki-matsuno/homebrew-tap.
+      # Absent → the tap step is skipped and the cask must be bumped by hand.
+      TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -38,3 +42,21 @@ jobs:
             --title "Shepherd $GITHUB_REF_NAME" \
             --generate-notes \
             Shepherd-*.zip Shepherd-*.zip.sha256
+
+      # Keep `brew install` current: rewrite the cask's version + sha256 to this
+      # release. The zip the checksum names is the one uploaded above, so the cask
+      # can never point at an asset that doesn't exist yet.
+      - name: Update Homebrew tap
+        if: env.TAP_TOKEN != ''
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          SHA=$(cut -d' ' -f1 "Shepherd-${VERSION}.zip.sha256")
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/sadayuki-matsuno/homebrew-tap.git" tap
+          cd tap
+          sed -i '' -E "s/^  version \".*\"/  version \"${VERSION}\"/" Casks/shepherd.rb
+          sed -i '' -E "s/^  sha256 \".*\"/  sha256 \"${SHA}\"/" Casks/shepherd.rb
+          if git diff --quiet -- Casks/shepherd.rb; then echo "cask already at ${VERSION}"; exit 0; fi
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -am "shepherd ${VERSION}"
+          git push
