@@ -54,9 +54,10 @@ var daemonJobsCache: (jobs: [DaemonJob], at: Date)? = nil
 // often. Guarded by factsLock.
 var accountCache: (account: AccountInfo?, at: Date)? = nil
 
-// key: session id. Was a "blocked" state already answered / Ctrl+C'd (blockedResolved)? Keyed on the
+// key: session id. The transcript's blocked verdict (none/pending/resolved — see blockedState),
+// feeding both the stale-block clear (resolved) and the positive detect (pending). Keyed on the
 // transcript's size+mtime, since the verdict can only change when the transcript grows — a stat, in
-// place of re-reading its last 256KB on every refresh of every blocked row. Guarded by factsLock.
+// place of re-reading its last 256KB on every refresh of every candidate row. Guarded by factsLock.
 var blockedStateCache: [String: (size: UInt64, mtime: Date, state: TranscriptBlockState)] = [:]
 
 // key: session id. Did the session's last turn end in an API error (transcriptErrored)? Same

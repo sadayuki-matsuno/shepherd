@@ -360,6 +360,14 @@ func runTranscriptTests() {
             #"{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"…"}],"stop_reason":"end_turn"}}"#,
         ])
         expectEq(transcriptTurnActive(cwd: cwd, sessionId: "idle-thinking"), false, "end_turn is idle even if the last block is a thinking block")
+        // A synthetic API-error record has no stop_reason but is a finished turn — must NOT read as
+        // working (else a status-less VS Code session that errored would spin forever and never reach
+        // the idle→error upgrade). Mirrors transcriptErrored's isApiErrorMessage fixture.
+        writeTranscript(cwd: cwd, sessionId: "errored", lines: [
+            #"{"type":"user","message":{"content":"やって"}}"#,
+            #"{"type":"assistant","message":{"model":"<synthetic>","content":[{"type":"text","text":"API Error: overloaded"}]},"isApiErrorMessage":true}"#,
+        ])
+        expectEq(transcriptTurnActive(cwd: cwd, sessionId: "errored"), false, "an API-error tail is a finished (idle) turn, not working")
         // Working: the turn is mid-flight on a tool_use (a call awaiting its result).
         writeTranscript(cwd: cwd, sessionId: "tool", lines: [
             #"{"type":"assistant","message":{"content":[{"type":"text","text":"確認します"},{"type":"tool_use","name":"Bash","id":"b1","input":{}}],"stop_reason":"tool_use"}}"#,
