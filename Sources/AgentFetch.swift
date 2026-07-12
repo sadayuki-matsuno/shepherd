@@ -66,6 +66,17 @@ func fetchAgents() -> [AgentRow] {
         // background worker's transcript lags a turn behind, so it would clear a real block.
         if status == "blocked", !liveBlocked(job: job, registry: reg),
            blockedResolved(cwd: cwd, sessionId: e.sessionId) { status = "idle" }
+        // A VS Code extension session (entrypoint "claude-vscode") never writes a registry status, so
+        // no live source ever reports blocked — yet its transcript records the open AskUserQuestion /
+        // ExitPlanMode like any session. Surface that as blocked. Excluded for daemon workers: their
+        // transcript lags a turn, so a pending question there can be stale (the daemon is live truth).
+        if status != "blocked", job == nil, blockedPending(cwd: cwd, sessionId: e.sessionId) { status = "blocked" }
+        // Same VS Code extension gap on the other axis: with no registry / CLI status, "working vs
+        // idle" also has to come from the transcript (its turn-in-flight shape). Only when no live
+        // source spoke (status still unknown) and it isn't a daemon worker.
+        if status == "unknown", job == nil, let active = transcriptTurnActive(cwd: cwd, sessionId: e.sessionId) {
+            status = active ? "working" : "idle"
+        }
         // A turn that died on an API error leaves the session idle with nothing running; the
         // transcript's synthetic error message is the same event the StopFailure hook reported.
         if status == "idle", transcriptErrored(cwd: cwd, sessionId: e.sessionId) { status = "error" }
@@ -219,7 +230,7 @@ func fetchAgents() -> [AgentRow] {
     contextCache = contextCache.filter { liveSessions.contains($0.key) }
     transcriptLinksCache = transcriptLinksCache.filter { liveSessions.contains($0.key) }
     forkKeyCache = forkKeyCache.filter { liveSessions.contains($0.key) }
-    blockedResolvedCache = blockedResolvedCache.filter { liveSessions.contains($0.key) }
+    blockedStateCache = blockedStateCache.filter { liveSessions.contains($0.key) }
     transcriptErrorCache = transcriptErrorCache.filter { liveSessions.contains($0.key) }
     activityFallbackCache = activityFallbackCache.filter { liveSessions.contains($0.key) }
     lastMessageCache = lastMessageCache.filter { liveSessions.contains($0.key) }
