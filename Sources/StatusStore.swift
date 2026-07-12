@@ -57,7 +57,7 @@ var accountCache: (account: AccountInfo?, at: Date)? = nil
 // key: session id. Was a "blocked" state already answered / Ctrl+C'd (blockedResolved)? Keyed on the
 // transcript's size+mtime, since the verdict can only change when the transcript grows — a stat, in
 // place of re-reading its last 256KB on every refresh of every blocked row. Guarded by factsLock.
-var blockedResolvedCache: [String: (size: UInt64, mtime: Date, resolved: Bool)] = [:]
+var blockedStateCache: [String: (size: UInt64, mtime: Date, state: TranscriptBlockState)] = [:]
 
 // key: session id. Did the session's last turn end in an API error (transcriptErrored)? Same
 // size+mtime keying, same reason. Guarded by factsLock.

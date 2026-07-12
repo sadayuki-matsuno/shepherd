@@ -469,35 +469,97 @@ func blockedPromptFromTranscript(cwd: String, sessionId: String) -> String? {
     return nil
 }
 
-// The status hook writes `blocked` when Claude opens an AskUserQuestion / ExitPlanMode prompt, but
-// nothing rewrites it when the user dismisses that prompt with Ctrl+C — no hook fires on cancel — so a
-// resolved block sticks and the card never leaves "blocked" (2026-07-09 report). The transcript does
-// record the resolution: a genuinely open prompt is the LAST main-chain record (Claude is waiting, so
-// nothing follows its tool_use), whereas an answered or cancelled one is followed by a user turn — the
-// tool_result / answer, or a "[Request interrupted by user…]" line, both user-role. So a blocked state
-// is stale iff a user record follows the last question tool_use. Conservative by design: it only
-// reports resolved on positive evidence, so a real pending prompt is never cleared.
-//
-// Called for every blocked row on every refresh, and FSEvents fire a refresh on each tool use. The
-// verdict can only change when the transcript grows, so it is keyed on the file's size and mtime — a
-// stat, rather than re-reading 256KB each time.
-func blockedResolved(cwd: String, sessionId: String) -> Bool {
-    guard !cwd.isEmpty, !sessionId.isEmpty else { return false }
+// The transcript's own verdict on an AskUserQuestion / ExitPlanMode prompt: `.none` (no question),
+// `.pending` (a question with nothing after it — Claude is waiting), or `.resolved` (a user turn
+// follows the newest question — its tool_result / answer, or a Ctrl+C "[Request interrupted…]", both
+// user-role). Both edges are load-bearing:
+//   • `.resolved` clears a stale `blocked` the user dismissed with Ctrl+C — no hook fires on cancel,
+//     so a hook `blocked` would otherwise stick and the card never leaves "blocked" (2026-07-09).
+//   • `.pending` is the ONLY blocked signal for a VS Code extension session: it records the open
+//     prompt in its transcript but never writes a registry `status` (the extension runs claude in
+//     SDK stream-json mode, where the permission/question handshake rides the SDK stream, not the
+//     registry — measured 2026-07-12). Only AskUserQuestion / ExitPlanMode count, so a plain tool_use
+//     stuck at a permission decision (indistinguishable from one mid-execution) is never `.pending`.
+// Conservative by design: `.resolved` needs positive evidence (a real pending prompt is never
+// cleared) and `.pending` needs a question tool_use (a working session never reads as blocked).
+enum TranscriptBlockState { case none, pending, resolved }
+
+// Cached on the transcript's size + mtime — the verdict can only change when the file grows, and this
+// is called for every candidate row on every refresh (FSEvents fire a refresh on each tool use), so a
+// stat beats re-reading 256KB each time.
+func blockedState(cwd: String, sessionId: String) -> TranscriptBlockState {
+    guard !cwd.isEmpty, !sessionId.isEmpty else { return .none }
     let dir = (claudeProjectsDir as NSString).appendingPathComponent(sanitizeCwd(cwd))
     let path = (dir as NSString).appendingPathComponent("\(sessionId).jsonl")
     let attrs = try? FileManager.default.attributesOfItem(atPath: path)
     let fileSize = (attrs?[.size] as? NSNumber)?.uint64Value ?? 0
     let fileMtime = attrs?[.modificationDate] as? Date ?? .distantPast
     factsLock.lock()
-    let cached = blockedResolvedCache[sessionId]
+    let cached = blockedStateCache[sessionId]
     factsLock.unlock()
-    if let c = cached, c.size == fileSize, c.mtime == fileMtime { return c.resolved }
+    if let c = cached, c.size == fileSize, c.mtime == fileMtime { return c.state }
 
-    let verdict = blockedResolvedUncached(path: path)
+    let verdict = blockedStateUncached(path: path)
     factsLock.lock()
-    blockedResolvedCache[sessionId] = (fileSize, fileMtime, verdict)
+    blockedStateCache[sessionId] = (fileSize, fileMtime, verdict)
     factsLock.unlock()
     return verdict
+}
+
+// A `blocked` the transcript proves was answered or Ctrl+C-cancelled — clears a stale block.
+func blockedResolved(cwd: String, sessionId: String) -> Bool {
+    blockedState(cwd: cwd, sessionId: sessionId) == .resolved
+}
+
+// An open AskUserQuestion / ExitPlanMode — the positive block signal for a session no live source
+// reports blocked for (a VS Code extension session, which writes no registry status).
+func blockedPending(cwd: String, sessionId: String) -> Bool {
+    blockedState(cwd: cwd, sessionId: sessionId) == .pending
+}
+
+// Is a status-less session's newest turn still in flight? A VS Code extension session reports no
+// busy/idle at all — neither the registry nor `claude agents` carries the field, because the
+// extension runs claude in SDK stream-json mode where the token-level activity (message_start /
+// content_block_delta / result) rides the stdout pipe to the extension and is never written to disk
+// (the transcript holds only turn-boundary records — measured 2026-07-12). So the coarsest on-disk
+// signal is all there is: the turn is IN FLIGHT when the newest main-chain record is a user message
+// (a prompt, or a tool_result Claude hasn't answered yet) or an assistant record that hasn't ended;
+// it is FINISHED when the newest main-chain assistant record's stop_reason is "end_turn". stop_reason
+// is the crisp edge for a MAIN session (unlike a teammate's — see subagentTail — the main chain
+// stamps end_turn on every finished turn and tool_use mid-turn, verified across a live claude-vscode
+// session), so a mid-turn thinking-only record no longer misreads as idle. nil = can't tell (no
+// transcript, or no main-chain turn yet). Uncached: a working session's transcript changes every
+// event, so a size/mtime cache would never hit, and only the few status-less rows ever call this.
+//
+// Note there's an inherent floor: while Claude streams a response, NOTHING is appended to the
+// transcript (measured: a ~7s gap between the user record and the first assistant record), so the
+// card can only re-evaluate at record boundaries, not token-by-token, and transcript mtime freshness
+// is useless (it would read idle during those streaming gaps).
+func transcriptTurnActive(cwd: String, sessionId: String) -> Bool? {
+    guard !cwd.isEmpty, !sessionId.isEmpty else { return nil }
+    let dir = (claudeProjectsDir as NSString).appendingPathComponent(sanitizeCwd(cwd))
+    let path = (dir as NSString).appendingPathComponent("\(sessionId).jsonl")
+    guard let fh = FileHandle(forReadingAtPath: path) else { return nil }
+    defer { try? fh.close() }
+    let size = (try? fh.seekToEnd()) ?? 0
+    if size > 262_144, (try? fh.seek(toOffset: size - 262_144)) == nil { return nil }
+    else if size <= 262_144 { try? fh.seek(toOffset: 0) }
+    guard let data = try? fh.readToEnd() else { return nil }
+    let text = String(decoding: data, as: UTF8.self)
+    for line in text.split(separator: "\n").reversed() {
+        guard let d = line.data(using: .utf8),
+              let obj = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any],
+              (obj["isSidechain"] as? Bool) != true else { continue }
+        switch obj["type"] as? String {
+        case "assistant":
+            return (obj["message"] as? [String: Any])?["stop_reason"] as? String != "end_turn"
+        case "user":
+            return true
+        default:
+            continue   // meta rows (ai-title, last-prompt, queue-operation, …) — keep scanning
+        }
+    }
+    return nil
 }
 
 // The session's subagents, from Claude Code's own per-agent files rather than the status hook's
@@ -678,13 +740,13 @@ private func transcriptErroredUncached(path: String) -> Bool {
     return false
 }
 
-private func blockedResolvedUncached(path: String) -> Bool {
-    guard let fh = FileHandle(forReadingAtPath: path) else { return false }
+private func blockedStateUncached(path: String) -> TranscriptBlockState {
+    guard let fh = FileHandle(forReadingAtPath: path) else { return .none }
     defer { try? fh.close() }
     let size = (try? fh.seekToEnd()) ?? 0
-    if size > 262_144, (try? fh.seek(toOffset: size - 262_144)) == nil { return false }
+    if size > 262_144, (try? fh.seek(toOffset: size - 262_144)) == nil { return .none }
     else if size <= 262_144 { try? fh.seek(toOffset: 0) }
-    guard let data = try? fh.readToEnd() else { return false }
+    guard let data = try? fh.readToEnd() else { return .none }
     let text = String(decoding: data, as: UTF8.self)
     var lastQuestion = -1, lastUserAfter = -1, i = 0
     for line in text.split(separator: "\n") {
@@ -705,7 +767,8 @@ private func blockedResolvedUncached(path: String) -> Bool {
             break
         }
     }
-    return lastQuestion >= 0 && lastUserAfter > lastQuestion
+    if lastQuestion < 0 { return .none }
+    return lastUserAfter > lastQuestion ? .resolved : .pending
 }
 
 // firstPrompt from ~/.claude/projects/<sanitized>/sessions-index.json (entries[].firstPrompt),

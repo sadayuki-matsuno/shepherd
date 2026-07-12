@@ -309,6 +309,82 @@ func runTranscriptTests() {
         expect(!blockedResolved(cwd: cwd, sessionId: "missing"), "no transcript → don't override (stay blocked)")
     }
 
+    test("blockedPending: an open question is the positive block signal for a status-less (VS Code extension) session") {
+        let cwd = "/tmp/proj-pending"
+        let question = #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"AskUserQuestion","id":"q1","input":{}}]}}"#
+        // VS Code extension sessions record the AskUserQuestion in the transcript but never write a
+        // registry status, so the pending question (nothing after it) is the only blocked signal.
+        writeTranscript(cwd: cwd, sessionId: "pending", lines: [
+            #"{"type":"user","message":{"content":"実装して"}}"#,
+            question,
+        ])
+        expect(blockedPending(cwd: cwd, sessionId: "pending"), "an unanswered question is a pending block")
+        // Answered → not pending (a user tool_result follows the question).
+        writeTranscript(cwd: cwd, sessionId: "answered", lines: [
+            question,
+            #"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"q1","content":"案A"}]}}"#,
+        ])
+        expect(!blockedPending(cwd: cwd, sessionId: "answered"), "an answered question is not pending")
+        // A plain tool_use (a Bash awaiting a permission decision, or mid-execution) must NOT read as a
+        // pending block — it's indistinguishable from a tool that is simply running.
+        writeTranscript(cwd: cwd, sessionId: "working", lines: [
+            #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","id":"b1","input":{"command":"curl x"}}]}}"#,
+        ])
+        expect(!blockedPending(cwd: cwd, sessionId: "working"), "a non-question tool_use is not a pending block")
+        // A sidechain (subagent) question isn't the main chain's block.
+        writeTranscript(cwd: cwd, sessionId: "side", lines: [
+            #"{"type":"assistant","isSidechain":true,"message":{"content":[{"type":"tool_use","name":"AskUserQuestion","id":"s1","input":{}}]}}"#,
+        ])
+        expect(!blockedPending(cwd: cwd, sessionId: "side"), "a sidechain question isn't a main-chain block")
+        expect(!blockedPending(cwd: cwd, sessionId: "missing"), "no transcript → nothing pending")
+        // ExitPlanMode (plan approval) is the other pending-block tool.
+        writeTranscript(cwd: cwd, sessionId: "plan", lines: [
+            #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"ExitPlanMode","id":"p1","input":{"plan":"やること"}}]}}"#,
+        ])
+        expect(blockedPending(cwd: cwd, sessionId: "plan"), "a pending plan approval is a pending block")
+    }
+
+    test("transcriptTurnActive: working vs idle from the tail, for a status-less (VS Code extension) session") {
+        let cwd = "/tmp/proj-turn"
+        // Finished: the newest main-chain assistant record's stop_reason is end_turn; trailing meta
+        // rows (ai-title / last-prompt) that Claude Code appends after the turn must be skipped.
+        writeTranscript(cwd: cwd, sessionId: "idle", lines: [
+            #"{"type":"user","message":{"content":"やって"}}"#,
+            #"{"type":"assistant","message":{"content":[{"type":"text","text":"done"}],"stop_reason":"end_turn"}}"#,
+            #"{"type":"ai-title","aiTitle":"t"}"#,
+        ])
+        expectEq(transcriptTurnActive(cwd: cwd, sessionId: "idle"), false, "an end_turn record is idle (meta rows ignored)")
+        // Finished even when the last content block is `thinking`, not text — end_turn is the edge, so
+        // this no longer misreads as working (the bug the stop_reason switch fixes).
+        writeTranscript(cwd: cwd, sessionId: "idle-thinking", lines: [
+            #"{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"…"}],"stop_reason":"end_turn"}}"#,
+        ])
+        expectEq(transcriptTurnActive(cwd: cwd, sessionId: "idle-thinking"), false, "end_turn is idle even if the last block is a thinking block")
+        // Working: the turn is mid-flight on a tool_use (a call awaiting its result).
+        writeTranscript(cwd: cwd, sessionId: "tool", lines: [
+            #"{"type":"assistant","message":{"content":[{"type":"text","text":"確認します"},{"type":"tool_use","name":"Bash","id":"b1","input":{}}],"stop_reason":"tool_use"}}"#,
+        ])
+        expectEq(transcriptTurnActive(cwd: cwd, sessionId: "tool"), true, "a tool_use turn (stop_reason != end_turn) is working")
+        // Working: the newest main-chain record is a user prompt no assistant turn has answered yet.
+        writeTranscript(cwd: cwd, sessionId: "prompt", lines: [
+            #"{"type":"assistant","message":{"content":[{"type":"text","text":"done"}]}}"#,
+            #"{"type":"user","message":{"content":"次はこれ"}}"#,
+        ])
+        expectEq(transcriptTurnActive(cwd: cwd, sessionId: "prompt"), true, "an unanswered user prompt means Claude is working")
+        // Working: a tool_result the assistant hasn't continued past yet.
+        writeTranscript(cwd: cwd, sessionId: "result", lines: [
+            #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","id":"b1","input":{}}]}}"#,
+            #"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"b1","content":"ok"}]}}"#,
+        ])
+        expectEq(transcriptTurnActive(cwd: cwd, sessionId: "result"), true, "a tool_result awaiting the next assistant turn is working")
+        // Unknown: no transcript, and a transcript with only sidechain (subagent) records.
+        expectEq(transcriptTurnActive(cwd: cwd, sessionId: "missing"), nil, "no transcript → unknown")
+        writeTranscript(cwd: cwd, sessionId: "sideonly", lines: [
+            #"{"type":"assistant","isSidechain":true,"message":{"content":[{"type":"tool_use","name":"Bash","id":"s1","input":{}}]}}"#,
+        ])
+        expectEq(transcriptTurnActive(cwd: cwd, sessionId: "sideonly"), nil, "only sidechain records → no main-chain verdict")
+    }
+
     test("tail reads survive a seek that lands mid-character (multibyte UTF-8)") {
         // A transcript is read by seeking back a fixed number of BYTES from the end, which often lands
         // inside a multibyte character. Decoding such a slice strictly yields nil for the whole slice,
