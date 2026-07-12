@@ -68,9 +68,12 @@ func fetchAgents() -> [AgentRow] {
            blockedResolved(cwd: cwd, sessionId: e.sessionId) { status = "idle" }
         // A VS Code extension session (entrypoint "claude-vscode") never writes a registry status, so
         // no live source ever reports blocked — yet its transcript records the open AskUserQuestion /
-        // ExitPlanMode like any session. Surface that as blocked. Excluded for daemon workers: their
-        // transcript lags a turn, so a pending question there can be stale (the daemon is live truth).
-        if status != "blocked", job == nil, blockedPending(cwd: cwd, sessionId: e.sessionId) { status = "blocked" }
+        // ExitPlanMode like any session. Surface that as blocked. Gated to `unknown` (symmetric with
+        // the working/idle line below): a session whose registry / CLI / daemon spoke is already
+        // classified, and only a status-less one needs the transcript — this keeps a normal
+        // interactive session (whose registry advances waiting→busy on an answer, possibly before the
+        // transcript's answering record flushes) from flickering back to blocked.
+        if status == "unknown", job == nil, blockedPending(cwd: cwd, sessionId: e.sessionId) { status = "blocked" }
         // Same VS Code extension gap on the other axis: with no registry / CLI status, "working vs
         // idle" also has to come from the transcript (its turn-in-flight shape). Only when no live
         // source spoke (status still unknown) and it isn't a daemon worker.

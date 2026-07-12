@@ -552,8 +552,16 @@ func transcriptTurnActive(cwd: String, sessionId: String) -> Bool? {
               (obj["isSidechain"] as? Bool) != true else { continue }
         switch obj["type"] as? String {
         case "assistant":
+            // A synthetic API-error record (isApiErrorMessage) carries no stop_reason but IS a
+            // finished turn — read it as idle so the caller's idle→error upgrade (transcriptErrored)
+            // can fire. A status-less session has no registry "idle" to trigger that otherwise, so
+            // without this an errored VS Code session would sit at "working" forever.
+            if (obj["isApiErrorMessage"] as? Bool) == true { return false }
             return (obj["message"] as? [String: Any])?["stop_reason"] as? String != "end_turn"
         case "user":
+            // A prompt or a tool_result Claude hasn't answered yet — working. (A Ctrl+C interrupt is
+            // also user-role, so an interrupted-then-idle session reads as working until the next
+            // record lands; accepted, same lagging-transcript ambiguity as the rest of this path.)
             return true
         default:
             continue   // meta rows (ai-title, last-prompt, queue-operation, …) — keep scanning
