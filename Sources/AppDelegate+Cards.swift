@@ -17,6 +17,10 @@ extension AppDelegate {
         // read as busy (green mirror) or bump its "稼働中" count. The fork shows its own state on its
         // own card, so nothing is lost.
         let familyWorking = familyChildren.filter { $0.status == "working" && !$0.isFork }.count
+        // Idle-but-still-on-the-roster teammates (2026-07-14): no card of their own (nothing runs,
+        // nothing to watch), but they can be re-activated by a message, so the family strip counts
+        // them and the peek lists them — otherwise a team at rest looks like no team at all.
+        let idleMates = row.isSubagent ? [] : row.subagents.filter { $0.onRoster && !$0.working }
         let childWorking = familyWorking > 0
         let mirror = childWorking && (row.status == "idle" || row.status == "blocked")
         // "waiting" = we just sent a reply to this agent and it hasn't unblocked yet.
@@ -151,7 +155,7 @@ extension AppDelegate {
         // stack starts below it. A parent with child sessions reserves a strip along the bottom
         // for the family fold control + collapsed summary (2026-07-08).
         let bannerH: CGFloat = (row.status == "error" || row.status == "blocked") ? 19 : 0
-        let familyStripH: CGFloat = familyChildren.isEmpty ? 0 : 20
+        let familyStripH: CGFloat = (familyChildren.isEmpty && idleMates.isEmpty) ? 0 : 20
         NSLayoutConstraint.activate([
             rail.leadingAnchor.constraint(equalTo: card.leadingAnchor),
             rail.topAnchor.constraint(equalTo: card.topAnchor),
@@ -445,21 +449,26 @@ extension AppDelegate {
         // The whole strip toggles the fold via a transparent full-size button overlay (the card's
         // hitTest only lets NSButton descendants keep their clicks); hovering it while collapsed
         // opens the family peek. Replaces the old top-right "⌄N" toggle.
-        if !familyChildren.isEmpty {
+        if !familyChildren.isEmpty || !idleMates.isEmpty {
             let sid = row.sessionId
             let strip = NSView()
             strip.wantsLayer = true
             strip.layer?.backgroundColor = Cat.surface1.withAlphaComponent(0.35).cgColor
             strip.translatesAutoresizingMaskIntoConstraints = false
 
-            // Forks render first, so count them first: "⑂ fork N ・ 子 M 件 ・ 稼働中 K".
+            // Forks render first, so count them first: "⑂ fork N ・ 子 M 件 ・ 稼働中 K ・ 待機 J".
             let forkCount = familyChildren.filter { $0.isFork }.count
             let realChildren = familyChildren.count - forkCount
             var parts: [String] = []
             if forkCount > 0 { parts.append(L("fork \(forkCount)", forkCount == 1 ? "1 fork" : "\(forkCount) forks")) }
             if realChildren > 0 { parts.append(L("子 \(realChildren) 件", realChildren == 1 ? "1 child" : "\(realChildren) children")) }
             if familyWorking > 0 { parts.append(L("稼働中 \(familyWorking)", "\(familyWorking) working")) }
-            let counts = symbolLabel(familyCollapsed ? "chevron.right" : "chevron.down",
+            if !idleMates.isEmpty { parts.append(L("待機 \(idleMates.count)", "\(idleMates.count) idle")) }
+            // No children → nothing to fold: a moon instead of a fold chevron (the strip exists
+            // only for its idle teammates), and the click below stays a no-op.
+            let stripSymbol = familyChildren.isEmpty ? "moon.zzz"
+                : familyCollapsed ? "chevron.right" : "chevron.down"
+            let counts = symbolLabel(stripSymbol,
                                      parts.joined(separator: L(" ・ ", " · ")), size: 10.5, weight: .bold,
                                      color: familyWorking > 0 ? Cat.green : Cat.subtext)
             counts.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -504,17 +513,22 @@ extension AppDelegate {
             let overlay = HoverButton(title: "")
             overlay.isBordered = false
             overlay.target = overlay; overlay.action = #selector(HoverButton.fire)
-            overlay.onPress = { [weak self] in self?.toggleFamily(sid) }
+            let foldable = !familyChildren.isEmpty
+            overlay.onPress = { [weak self] in if foldable { self?.toggleFamily(sid) } }
             let children = familyChildren
             overlay.onHover = { [weak self, weak strip] entered in
                 guard let self = self else { return }
                 self.setHint(entered
-                    ? (familyCollapsed ? L("クリックで子カードを展開", "click to unfold the children")
-                                       : L("クリックで子カードを折りたたむ", "click to fold the children"))
+                    ? (children.isEmpty ? L("待機中の teammate — 右クリックでメッセージ／片付け", "idle teammates — right-click to message / clean up")
+                       : familyCollapsed ? L("クリックで子カードを展開", "click to unfold the children")
+                                         : L("クリックで子カードを折りたたむ", "click to fold the children"))
                     : nil)
-                if familyCollapsed {
-                    if entered, let s = strip { self.showFamilyPeek(children: children, from: s) }
-                    else { self.scheduleFamilyPeekClose() }
+                // The peek previews whatever has no card right now: the children while collapsed,
+                // and idle roster teammates always (they never get cards).
+                if familyCollapsed || !idleMates.isEmpty {
+                    if entered, let s = strip {
+                        self.showFamilyPeek(children: familyCollapsed ? children : [], idle: idleMates, from: s)
+                    } else { self.scheduleFamilyPeekClose() }
                 }
             }
             overlay.translatesAutoresizingMaskIntoConstraints = false
@@ -778,6 +792,26 @@ extension AppDelegate {
         if sendable {
             menu.addItem(ClosureMenuItem(L("遠隔操作（/remote-control）", "Remote-control")) { [weak self] in self?.remoteControlRow(row) })
             menu.addItem(ClosureMenuItem(L("範囲を撮影して送る", "Capture a region & send")) { [weak self] in self?.captureAndSendRow(row) })
+        }
+        // Idle roster teammates (2026-07-14): they have no card, so the parent's menu is where they
+        // can be messaged (re-activated) or cleaned up — both by writing the team inbox files.
+        let idleMates = row.isSubagent ? [] : row.subagents.filter { $0.onRoster && !$0.working }
+        if !idleMates.isEmpty {
+            menu.addItem(.separator())
+            for mate in idleMates {
+                guard let name = mate.name else { continue }
+                let sub = NSMenu()
+                sub.addItem(ClosureMenuItem(L("メッセージを送って再開…", "Send a message (re-activates)…")) { [weak self, weak anchor] in
+                    if let a = anchor { self?.showTeammateMessage(row: row, teammate: name, from: a) }
+                })
+                sub.addItem(ClosureMenuItem(L("片付ける（lead に shutdown を依頼）", "Clean up (ask the lead to shut it down)")) { [weak self] in
+                    self?.cleanupTeammate(row: row, teammate: name)
+                })
+                let item = NSMenuItem(title: name, action: nil, keyEquivalent: "")
+                item.image = symbolImage("moon.zzz", size: 11)
+                item.submenu = sub
+                menu.addItem(item)
+            }
         }
         // If this repo group is manually placed (dragged to a column), offer to release it back to
         // auto-fill. Manual *placement* is by dragging the header — there's no menu action for it.

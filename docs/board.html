@@ -219,26 +219,36 @@
     <h2 lang="en">Families: children, forks, and the strip</h2>
     <h2 lang="ja">ファミリー: 子セッション・フォーク・ストリップ</h2>
     <p lang="en">
-      Subagents and teammates nest under their parent card <strong>while they work</strong>, then disappear when
+      Subagents and teammates nest under their parent card <strong>while they work</strong>, then leave the board when
       they finish — the board stays as small as the number of workstreams, not the number of processes.
       Child <strong>sessions</strong> (a separate <code>claude</code> process your session launched) nest when the parent
       exported <code>SHEPHERD_PARENT_SESSION_ID</code>; forks are detected automatically and get a branch mark.
     </p>
     <p lang="ja">
-      サブエージェントと teammate は<strong>作業中だけ</strong>親カードの下にネストし、終了すると消えます —
+      サブエージェントと teammate は<strong>作業中だけ</strong>親カードの下にネストし、終了すると盤面から外れます —
       盤面はプロセス数ではなくワークストリーム数だけの大きさに保たれます。子<strong>セッション</strong>
       （親セッションが起動した別の <code>claude</code> プロセス）は、親が <code>SHEPHERD_PARENT_SESSION_ID</code>
       を export していればネストします。フォークは自動検出され、ブランチマークが付きます。
     </p>
     <p lang="en">
-      The strip along a parent's bottom edge sums it up (<em>2 children · 1 working</em>, plus a blocked
+      The strip along a parent's bottom edge sums it up (<em>2 children · 1 working · 3 idle</em>, plus a blocked
       child's question when there is one). Click anywhere on the strip to fold or unfold the family;
-      hover while folded to peek without unfolding.
+      hover to peek at whatever has no card right now — folded children, and teammates at rest.
     </p>
     <p lang="ja">
-      親カードの下端に沿ったストリップがそれを要約します（<em>子 2 件・稼働中 1</em>、加えて子が
-      応答待ちならその質問も表示）。ストリップのどこをクリックしても家族を畳む/展開でき、畳んだ状態で
-      ホバーすると展開せずに覗き見できます。
+      親カードの下端に沿ったストリップがそれを要約します（<em>子 2 件・稼働中 1・待機 3</em>、加えて子が
+      応答待ちならその質問も表示）。ストリップのどこをクリックしても家族を畳む/展開でき、
+      ホバーすると今カードを持たないもの — 畳んだ子と待機中の teammate — を覗き見できます。
+    </p>
+    <p lang="en">
+      An <strong>idle teammate</strong> (finished its task but still on the team roster) isn't gone — a message
+      re-activates it. The parent card's right-click menu lists each one: send it an instruction
+      (it resumes on delivery), or ask the lead session to shut it down and take it off the roster.
+    </p>
+    <p lang="ja">
+      <strong>待機中の teammate</strong>（タスクを終えたがチーム名簿には残っているもの）は消えたわけではなく、
+      メッセージで再稼働します。親カードの右クリックメニューに1体ずつ並び、指示を送って再開させる／
+      lead セッションに shutdown（名簿からの削除）を依頼する、が選べます。
     </p>
 
     <h2 lang="en">The archive lane</h2>

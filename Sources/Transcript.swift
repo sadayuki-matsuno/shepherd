@@ -679,8 +679,10 @@ func subagentsFromTranscript(cwd: String, sessionId: String) -> [SubagentRecord]
     func mtime(_ path: String) -> Date? {
         (try? fm.attributesOfItem(atPath: path))?[.modificationDate] as? Date
     }
-    // Lead-transcript idle notifications, fetched once per call and only when a teammate needs them.
+    // Lead-transcript idle notifications and the team roster, fetched once per call and only when
+    // a teammate needs them.
     var idleTimes: [String: Date]?
+    var roster: Set<String>??
     var out: [SubagentRecord] = []
     for name in names.sorted() where name.hasPrefix("agent-") && name.hasSuffix(".meta.json") {
         let metaPath = (subagents as NSString).appendingPathComponent(name)
@@ -705,6 +707,13 @@ func subagentsFromTranscript(cwd: String, sessionId: String) -> [SubagentRecord]
         if (meta["taskKind"] as? String) == "in_process_teammate", let agentName = rec.name {
             if idleTimes == nil { idleTimes = teammateIdleTimes(cwd: cwd, sessionId: sessionId) }
             rec.working = teammateWorking(idleAt: idleTimes?[agentName], jsonlMtime: mtime(jsonl))
+            if roster == nil { roster = teamMemberNames(leadSessionId: sessionId) }
+            rec.onRoster = (roster ?? nil)?.contains(agentName) ?? false
+            // The roster is authoritative for existence: a shutdown removes the member, but its
+            // approval turn writes jsonl records AFTER the last idle_notification — without this
+            // kill a shut-down teammate would read working until the 30-min backstop (measured
+            // 2026-07-14). A missing roster (no readable team config) changes nothing.
+            if let members = roster ?? nil, !members.contains(agentName) { rec.working = false }
         }
         rec.activity = tail.activity
         rec.startedAt = mtime(metaPath)

@@ -4,6 +4,7 @@ import Foundation
 
 runModelsTests()
 runTranscriptTests()
+runTeamsTests()
 runStatusStoreTests()
 runGitHubFactsTests()
 runCommandsTests()

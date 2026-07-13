@@ -361,6 +361,9 @@ struct SubagentRecord {
                                    // agent's first assistant reply lands in its jsonl (which then
                                    // wins: it carries the resolved model id)
     var working: Bool = false      // jsonl tail is mid-turn (the turn hasn't ended)
+    var onRoster: Bool = false     // still in teams/<team>/config.json members — an idle teammate
+                                   // that can be re-activated by a message, as opposed to one that
+                                   // was shut down (shutdown removes the member; measured 2026-07-14)
     var activity: String? = nil    // "what it's doing now" from its own jsonl: the last tool call
                                    // while working, else its last message — its analogue of the
                                    // parent's daemon `detail`, and (unlike the caller-given name) in
