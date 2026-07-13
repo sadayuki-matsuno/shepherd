@@ -562,6 +562,98 @@ func transcriptTurnActive(cwd: String, sessionId: String) -> Bool? {
     return nil
 }
 
+// MARK: - Teammate idle notifications
+//
+// When an in-process teammate (agent teams) ends a turn, the LEAD session's transcript gets a user
+// record whose content embeds a machine-readable event (measured on party-game, 2026-07-14):
+//
+//   <teammate-message teammate_id="catalog-crokinole" color="blue">
+//   {"type":"idle_notification","from":"catalog-crokinole","timestamp":"…","idleReason":"available"}
+//   </teammate-message>
+//
+// This is the only durable "this teammate is DONE" fact anywhere on disk: the teammate's own jsonl
+// tail can't distinguish a finished report from a mid-turn narration line ("now I'll write the
+// file…") followed by minutes of tool-call generation — both end in a text block with a null
+// stop_reason. The lead itself has misread that tail and spawned a duplicate teammate, so the
+// notification is what the harness actually trusts.
+//
+// Caveat: the record lands in the lead transcript with a delay (measured 15ms while the lead is
+// idle, up to ~2min while it is mid-turn), so "idle" detection can lag by that much. The error is
+// on the safe side — a finished teammate briefly keeps its working card, never the reverse.
+
+// The latest idle_notification per teammate name found in a transcript slice. Pure, testable.
+func teammateIdlesFromSlice(_ text: String) -> [String: Date] {
+    var out: [String: Date] = [:]
+    for line in text.split(separator: "\n") where line.contains("idle_notification") {
+        guard let d = line.data(using: .utf8),
+              let obj = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any],
+              (obj["type"] as? String) == "user",
+              let msg = obj["message"] as? [String: Any] else { continue }
+        var content = ""
+        if let s = msg["content"] as? String { content = s }
+        else if let blocks = msg["content"] as? [[String: Any]] {
+            content = blocks.compactMap { $0["text"] as? String }.joined(separator: "\n")
+        }
+        // The event JSON sits on its own line inside the <teammate-message> wrapper.
+        for inner in content.split(separator: "\n") where inner.hasPrefix("{") {
+            guard let id = inner.data(using: .utf8),
+                  let n = (try? JSONSerialization.jsonObject(with: id)) as? [String: Any],
+                  (n["type"] as? String) == "idle_notification",
+                  let from = n["from"] as? String,
+                  let at = parseUsageISODate(n["timestamp"] as? String) else { continue }
+            if let prev = out[from], prev >= at { continue }
+            out[from] = at
+        }
+    }
+    return out
+}
+
+// Latest idle_notification per teammate name from the lead's transcript. Incremental like
+// extractLinksFromTranscript: the first read scans up to the trailing transcriptScanTail, every
+// read after that only the newly-appended bytes; results accumulate per session.
+func teammateIdleTimes(cwd: String, sessionId: String) -> [String: Date] {
+    guard !cwd.isEmpty, !sessionId.isEmpty else { return [:] }
+    let dir = (claudeProjectsDir as NSString).appendingPathComponent(sanitizeCwd(cwd))
+    let path = (dir as NSString).appendingPathComponent("\(sessionId).jsonl")
+    factsLock.lock()
+    let cached = teammateIdleCache[sessionId]
+    factsLock.unlock()
+    guard let fh = FileHandle(forReadingAtPath: path) else { return cached?.idleAt ?? [:] }
+    defer { try? fh.close() }
+    let size = (try? fh.seekToEnd()) ?? 0
+    var start = cached?.offset ?? 0
+    if start > size { start = 0 }   // truncated/rotated
+    if size > transcriptScanTail { start = max(start, size - transcriptScanTail) }
+    if start >= size { return cached?.idleAt ?? [:] }   // nothing new
+    guard (try? fh.seek(toOffset: start)) != nil,
+          let data = try? fh.readToEnd() else { return cached?.idleAt ?? [:] }
+    var merged = cached?.idleAt ?? [:]
+    for (from, at) in teammateIdlesFromSlice(String(decoding: data, as: UTF8.self)) {
+        if let prev = merged[from], prev >= at { continue }
+        merged[from] = at
+    }
+    factsLock.lock()
+    teammateIdleCache[sessionId] = (merged, size)
+    factsLock.unlock()
+    return merged
+}
+
+// Is a teammate still working? The teammate's own jsonl tail plays no part here — a text tail can
+// be a mid-turn narration and a tool_use tail can be a killed turn, so it proves nothing either
+// way. Two facts decide: the idle_notification is authoritative when it is fresher than the
+// teammate's jsonl (nothing happened since the harness said "idle"; a jsonl write after it means
+// the teammate was re-activated by a new message), and 30 minutes of jsonl silence reads as idle —
+// the backstop for a teammate killed without a notification (the longest live tool-call generation
+// gap measured on party-game was ~8 min, so 30 min is comfortably past a live one).
+//
+// The 2s tolerance absorbs the flush order at turn end: the final jsonl records land milliseconds
+// BEFORE the notification's event timestamp, but mtime granularity can round past it.
+func teammateWorking(idleAt: Date?, jsonlMtime: Date?, now: Date = Date()) -> Bool {
+    if let idleAt, let m = jsonlMtime, idleAt.addingTimeInterval(2) >= m { return false }
+    if let m = jsonlMtime, now.timeIntervalSince(m) > 1800 { return false }
+    return true
+}
+
 // The session's subagents, from Claude Code's own per-agent files rather than the status hook's
 // SubagentStart/Stop bookkeeping (2026-07-10). Each spawned agent leaves two files under
 // <projects>/<sanitized-cwd>/<session-id>/subagents/:
@@ -572,6 +664,8 @@ func transcriptTurnActive(cwd: String, sessionId: String) -> Bool? {
 // State comes from the last record of that jsonl: an agent that finished ends with an assistant
 // message whose stop_reason is "end_turn"; one still working ends mid-turn (stop_reason "tool_use",
 // a thinking block, a pending tool_result). Measured on a live pair, 2026-07-10.
+// For in-process teammates that tail is ambiguous (see teammateWorking above), so their state is
+// ruled by the lead transcript's idle_notification instead (party-game, 2026-07-14).
 //
 // Note the parent's own tool_result can't answer this: an async agent is answered IMMEDIATELY with
 // {"status":"async_launched"} and keeps running for minutes.
@@ -585,6 +679,8 @@ func subagentsFromTranscript(cwd: String, sessionId: String) -> [SubagentRecord]
     func mtime(_ path: String) -> Date? {
         (try? fm.attributesOfItem(atPath: path))?[.modificationDate] as? Date
     }
+    // Lead-transcript idle notifications, fetched once per call and only when a teammate needs them.
+    var idleTimes: [String: Date]?
     var out: [SubagentRecord] = []
     for name in names.sorted() where name.hasPrefix("agent-") && name.hasSuffix(".meta.json") {
         let metaPath = (subagents as NSString).appendingPathComponent(name)
@@ -606,6 +702,10 @@ func subagentsFromTranscript(cwd: String, sessionId: String) -> [SubagentRecord]
             .appendingPathComponent(String(name.dropLast(".meta.json".count)) + ".jsonl")
         let tail = subagentTail(path: jsonl)
         rec.working = !tail.finished
+        if (meta["taskKind"] as? String) == "in_process_teammate", let agentName = rec.name {
+            if idleTimes == nil { idleTimes = teammateIdleTimes(cwd: cwd, sessionId: sessionId) }
+            rec.working = teammateWorking(idleAt: idleTimes?[agentName], jsonlMtime: mtime(jsonl))
+        }
         rec.activity = tail.activity
         rec.startedAt = mtime(metaPath)
         rec.updatedAt = mtime(jsonl)
