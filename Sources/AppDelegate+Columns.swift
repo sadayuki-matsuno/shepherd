@@ -490,7 +490,7 @@ extension AppDelegate {
     // Shown when the server is up but no agents are running: the logo + a short "what this
     // does" blurb, so an empty board reads as intentional rather than broken. The logo doubles
     // as a button that opens the new-session picker (when ghq is available).
-    func emptyStateView() -> NSView {
+    func emptyStateView(headerHeight: CGFloat) -> NSView {
         let box = NSStackView()
         box.orientation = .vertical
         box.alignment = .centerX
@@ -540,8 +540,10 @@ extension AppDelegate {
         // single-column contentWidth, the box hugged the top-left of a fixed 2–3 column panel).
         // The wrapper spans the same width the header does (boardSpanWidth), and in the fixed /
         // fullDisplay modes it also claims the panel height left over below the header rows —
-        // measured from the stack at this point in rebuild — so the content floats at the visual
-        // center. In auto mode the panel hugs the content, so the wrapper just hugs the box.
+        // headerHeight, measured by the caller from the freshly-built header views (the stack
+        // still holds the OLD content at this point in build-then-swap rebuild) — so the content
+        // floats at the visual center. In auto mode the panel hugs the content, so the wrapper
+        // just hugs the box.
         let wrap = NSView()
         wrap.translatesAutoresizingMaskIntoConstraints = false
         box.translatesAutoresizingMaskIntoConstraints = false
@@ -553,10 +555,9 @@ extension AppDelegate {
             box.centerYAnchor.constraint(equalTo: wrap.centerYAnchor),
         ])
         if let panelH = fixedPanelSize()?.height {
-            stack.layoutSubtreeIfNeeded()
             box.layoutSubtreeIfNeeded()
             // 64 ≈ the document's top/bottom insets (24) + the hint line + stack spacing below.
-            let remaining = panelH - stack.fittingSize.height - 64
+            let remaining = panelH - headerHeight - 64
             if remaining > box.fittingSize.height {
                 wrap.heightAnchor.constraint(equalToConstant: remaining).isActive = true
             }
@@ -707,18 +708,23 @@ extension AppDelegate {
     }
 
     func rebuild(rows: [AgentRow]?) {
-        stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        // Build the ENTIRE new view tree first, then swap it in — the old views are removed only
+        // once their replacements exist. Teardown-first left the panel empty while construction
+        // ran, and any main-thread stall in that window (a subprocess in claudeAccount, say) put
+        // a blank HUD on screen for its duration (2026-07-14, caught by frame capture).
         let filtered = rows.map(applyFilter)
         // Top-to-bottom: brand bar (logo + account + controls), then the plan-usage gauges, then the
         // status row (24h filter + summary pills) sitting right on top of the board (2026-07-11).
         let (brand, status) = headerView(rows: filtered)
-        stack.addArrangedSubview(brand)
-        if showUsageDashboard { stack.addArrangedSubview(usageDashboardView(width: boardSpanWidth)) }
-        if let status = status { stack.addArrangedSubview(status) }
+        var views: [NSView] = [brand]
+        if showUsageDashboard { views.append(usageDashboardView(width: boardSpanWidth)) }
+        if let status = status { views.append(status) }
 
         // Minimized: dashboard + header summary only — skip the whole body and hint line.
         // This wins over the fixed size modes: a mostly-empty fixed panel with one strip is noise.
         if minimized {
+            stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+            views.forEach(stack.addArrangedSubview)
             scrollView.verticalScrollElasticity = .none
             stackWidthConstraint.isActive = true
             stack.layoutSubtreeIfNeeded()
@@ -730,11 +736,14 @@ extension AppDelegate {
         }
 
         if let rows = filtered, rows.isEmpty {
-            stack.addArrangedSubview(emptyStateView())
+            views.forEach { $0.layoutSubtreeIfNeeded() }
+            let headerHeight = views.reduce(0) { $0 + $1.fittingSize.height }
+                + stack.spacing * CGFloat(max(0, views.count - 1))
+            views.append(emptyStateView(headerHeight: headerHeight))
         } else if let rows = filtered {
             // Always lay repos out as fixed-width masonry columns (v5fix3 #3 — the single-column row
             // mode is gone). Groups pack into the shortest column; pinned groups keep a stable slot.
-            stack.addArrangedSubview(columnsView(groupByRepo(rows)))
+            views.append(columnsView(groupByRepo(rows)))
         }
         // Remember which sessions we've shown (new ones fade in next time) and their rendered state
         // (a change animates the rail colour) — B4. Updated after the body is built.
@@ -747,13 +756,16 @@ extension AppDelegate {
         do {
             let hint = makeLabel("", size: 10.5, color: Cat.overlay)
             hint.lineBreakMode = .byTruncatingTail
-            stack.addArrangedSubview(hint)
+            views.append(hint)
             // Match the header: span the board so longer hints (e.g. the close-idle breakdown)
             // aren't cut at the legacy 296pt.
             let hintWide = !(filtered?.isEmpty ?? true)
             hint.widthAnchor.constraint(equalToConstant: hintWide ? boardSpanWidth : contentWidth - 24).isActive = true
             hintLabel = hint
         }
+
+        stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        views.forEach(stack.addArrangedSubview)
 
         // The board grows to fit its columns; the fixed-width constraint now only pins the minimized
         // strip (handled above) — so it stays inactive here.

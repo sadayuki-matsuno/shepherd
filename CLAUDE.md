@@ -82,6 +82,7 @@ env -u HERDR_ENV -u HERDR_SOCKET_PATH -u HERDR_PANE_ID -u HERDR_TAB_ID -u HERDR_
 
 ## 地雷リスト（この開発で踏んだもの全部）
 
+- **rebuild 経路でメインスレッド同期サブプロセスを走らせない**（2026-07-14 実測）。旧 `claudeAccount()` は5分キャッシュ切れのたび `claude auth status`（〜0.3s）を rebuild 内で同期実行し、全ビュー撤去直後だったため**空のパネルが約0.5秒画面に出て「HUD が閉じて開く」ように見えた**（フレームキャプチャで確証。ウィンドウ枠・バッファ監視には写らない）。対策は二重: ①facts 系は必ず stale-while-revalidate（prInfo と同型・`onAccountChanged`）②rebuild は**新ビューを全部構築してから旧ビューと入れ替える**（teardown-first に戻さないこと）。
 - **非アクティブパネルでは `NSToolTip`・`NSCursor`（ポインタ変更）・`NSApp.activate` が効かない**。→ ツールチップは自前ヒント行、カーソル変更は諦め、ポップオーバー表示時は明示的に `NSApp.activate(ignoringOtherApps:)`。
 - **Shepherd（決してアクティブにならない accessory app）発の AppleScript では、Ghostty の `activate window` がウィンドウ前面化だけ許可されアプリのアクティブ化を拒否されることがある**（macOS 14+ cooperative activation。ペインは見えるのにキー入力が別アプリに行く — 2026-07-08 実機報告）。→ クリック受領直後に `NSApp.yieldActivation(toApplicationWithBundleIdentifier:)` で権限を譲渡し、AppleScript 側にもアプリレベル `activate` を入れる（`jumpToZellij` / `focusGhosttyZellijWindow` 参照）。
 - **Ghostty の操作は AppleScript API 一択**。`open -na` は幽霊インスタンス＋二重配送、`open -a`（-nなし）は起動済みアプリに引数を渡さない、`-e` 直接実行はシェルを介さず環境が欠落する。→ ジャンプは `new window with configuration {command}`（新規）/ `activate window`（既存、id は UserDefaults 永続化）。**Shepherd 自身が `new window` で作った window id だけを信頼**（zellij 等の既存 window id を種付けしない）。surface configuration には `initial working directory` があるので、新規セッションは worktree を cwd に指定して開ける（シェル経由不要）。初回に自動化のTCC同意ダイアログ（Shepherd→Ghostty）が出る。

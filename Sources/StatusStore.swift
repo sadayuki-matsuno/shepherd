@@ -58,6 +58,7 @@ var daemonJobsCache: (jobs: [DaemonJob], at: Date)? = nil
 // this is cached 5 min: the header reads it on every rebuild but the subprocess runs at most that
 // often. Guarded by factsLock.
 var accountCache: (account: AccountInfo?, at: Date)? = nil
+var accountFetching = false   // guarded by factsLock; dedupes the background revalidation
 
 // key: session id. The transcript's blocked verdict (none/pending/resolved — see blockedState),
 // feeding both the stale-block clear (resolved) and the positive detect (pending). Keyed on the
