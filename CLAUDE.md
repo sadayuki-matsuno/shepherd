@@ -26,18 +26,20 @@ Shepherd はこのマシンで動く Claude Code セッション（zellij ペイ
 
 ### HUD の構造
 
-- **カードは5行構成**（`rowView(for:)`）:
-  1. ドット / 名前 / #issue / `</>`（vscode）/ 遠隔マーク。直下にチップ行: 権限モード・モデル・アドバイザー（`+OPUS` 等 — transcript 行レベルの `advisorModel` フィールド由来〔2026-07-15 実測・subagent の jsonl にも継承されて写る〕。「構成あり」の印で「相談した」印ではない）・BG・実行環境（`AgentRow.runtime` — zellij / VS Code / Ghostty / claude -p 等。純関数 `runtimeLabel`、headless の判別はレジストリの `entrypoint`）
-  2. status・経過時間・変更ファイル数・⚠（コンテキスト>85%）・📎送信済み
-  3. ⑂/📁 ディレクトリパス ⎇ ブランチ（monospace, byTruncatingMiddle）
-  4. 成果物バッジ（統合PRバッジ `PR #N ✓/✗ ↗` ＋ Artifact リンク）
-  5. Claude の現在の作業内容（activity）
+- **カードの構成**（`rowView(for:)`・上から。2026-07-15 実装照合済み — 旧「5行構成」の記述はドット・パス行・下部ゲージ込みで古かった）:
+  1. ［状態バナー 19px — blocked=桃「? 応答待ち — N分（・放置中）」/ error=赤「ERROR — 対応が必要」のときだけ］
+  2. タイトル行: **先頭に実行環境グリフ**（2026-07-15 計器盤化・アイコン単独はここだけ: zellij=分割ペイン / エディタ=`</>`〔未知の VS Code フォークも同グリフ・実名はホバー〕 / 端末アプリ=窓付き端末 / headless=素のプロンプト。純関数 `runtimeGlyph`。**グリフの色＝権限モード**〔lavender=plan / 緑=acceptEdits / 琥珀=dontAsk / 赤=bypass / 灰=default。錠前計器は同日夜に廃止してここへ統合〕。ホバーで実行環境＋モード名をヒント行へ。旧・末尾の vscode 専用 `</>` マークは撤去）→ activity（OSC タイトル → last_prompt。無ければセッション名）＋ `#issue` を追記。subagent=sparkles・ツールコール中=gear・遠隔マークもこの行
+  3. 計器行（旧チップ行・2026-07-15 に「アイコン＋テキスト」化。ピルが残るのは BG・parked・未知の権限モードだけ〔既知モードの判定は `lockGlyph(for:)` を述語として流用〕）: **段数バー＋モデル名**（`modelTier` 1=HAIKU〜4=FABLE・ティア色は従来どおり。未知名は旧チップにフォールバック。グリフの底はラベルの **baseline に接地**〔大文字ラベルの光学中心は幾何中心より上 — centerY 揃えは沈んで見える。2026-07-15 実測〕）・**描画矢印→吹き出し＋アドバイザー名**（`advisorArrowImage`＋SF `bubble.left`。矢印=相談する先・アドバイザー計器はホバーで説明ポップアップ。transcript 行レベル `advisorModel` 由来〔subagent/teammate の jsonl にも継承〕。「構成あり」の印で「相談した」印ではない）。描画は `tierBarsImage`＋`instrument()`（Components）
+  4. ［blocked の「? 質問」1行プレビュー（`showBlockedQuestion`・needs → lastMessage）］
+  5. ［成果物: **Artifact のみ**（1件=タイトルバッジ・2件以上=「最新タイトル（他+N）」1枚でクリック選択メニュー `artifactBadgeText`）。**PR バッジはカード面から撤去**（2026-07-15）— 右クリックメニューの「✓/✗/● PR #N を開く」へ］
+  6. メタ行: 経過時間・±変更ファイル数・📎送信済み・stale?・✨子作業中、右端に◔コンテキスト%パイ（**状態の単語は置かない** — 状態は下記の装飾が担う）
+- **状態はドットではなくカード装飾**（v5fix3 でタイトル行のドット廃止）: 左端3pxレール（赤error/桃blocked/緑working/灰idle）、blocked/error は薄い同色ウォッシュ、working は緑の呼吸ボーダー＋薄緑ティント、idle/終了は50%アルファ（ホバーで復帰）。未コミットは右上の琥珀ドッグイア（15×15）。**パス⎇ブランチはカード面から撤去済み**（右クリックメニュー内のみ）。subagent/teammate カードは破線輪郭のコンパクトチップ（レールなし・破線色が状態色）。
 - **ヒント行**: カード下部に自前のホバーヒント表示（`hintLabel` / `setHint`）。NSToolTip が効かないための代替。
 - **カードのクリック＝そのセッションを開く**（`openRow`）: zellij 行は `zellij attach`＋ペインフォーカス、background worker は **Ghostty 新窓で `claude attach <short-id>`**（終了記録は確認シートを挟んで再開）。開けない行（素のターミナル）は toolTip で説明するだけ。
 - **カード操作は右クリックメニュー**（`wireCardActions` のコンテキストメニュー）: 回答する（blocked時は先頭）／zellij・attach で開く／遠隔操作／範囲を撮影して送る／閉じる 等。旧ホバートレイは廃止済みで `RowView.tray` はどこからも populate されない（死にコード。触るなら削除してよい）。
 - **ファミリーストリップ**（親カード最下部20px・2026-07-08）: `⌄/› 子 N 件・稼働中 M`。折りたたみ中は子のステータスドット＋要注目の子の一言（blocked の `? 質問` 優先）も同居し、ホバーで覗き見ポップオーバー（`showFamilyPeek`）。クリックはストリップ全面でトグル — `RowView.hitTest` は NSButton 系しかクリックを通さないので**透明 `HoverButton` を全面に重ねる**構成。旧「右上⌄Nトグル」「折りたたみ時の別サマリカード（familySummaryView）」は廃止。
 - **HUDサイズモード**（2026-07-08）: ⚙メニュー「HUD サイズ」で `auto`（内容追従・従来）/ 小=1列 / 中=2列 / 大=3列（固定サイズ・高さは 520/640/760 をディスプレイ高でクランプ）/ `fullDisplay`（載っているディスプレイの visibleFrame 全面）を切り替え（`hudSizeMode` に永続化）。`stack` は常に `DragScrollView`（縦スクロールのみ・documentView は `FlippedView` で上詰め・幅は clip 幅に固定＝横スクロール構造的に不可）内に住み、auto ではパネルが内容にフィットするためスクロールは発生しない。固定系の列数は `effectiveColumns`（プリセット列数 / fullDisplay は `hudFitColumns` で画面幅から算出）が単一の真実で、`columnsView`・`applyManualDrop`・`boardWidth` すべてがこれを参照。ヘッダー/ダッシュボード/ヒント行の幅は `boardSpanWidth`（固定系はパネル内寸）。最小化は固定サイズより優先（小さいストリップに縮む）。純ロジック（`hudPreset`/`hudPanelWidth`/`hudFitColumns`）は Models.swift・テスト済み。
-- **コンテキストゲージ**: カード最下部3px（teal→yellow60→red85）、上に14pxの `HoverView` を重ねてホバーで残量ヒント。
+- **コンテキスト%**: メタ行右端の小さなパイ＋%（v7 で**全幅の下部3pxゲージは廃止**。60%未満はグレーでカードに溶け、60%で黄・85%で赤）。パイへのホバーで残量ヒント（`HoverView`）。
 - **各ポップオーバー**（すべて `behavior = .applicationDefined`・表示前に `NSApp.activate`）:
   - 回答（`showReply`）— blocked agent にインライン回答。質問文は transcript の最新 AskUserQuestion/ExitPlanMode tool_use input（`blockedPromptFromTranscript`）、bg worker は socket の `needs`。送信は zellij なら write-chars＋Enter、bg worker なら control socket の `reply` op（**auth 必須**: `~/.claude/daemon/control.key`）。📋コピーボタン＋⌘Cローカルモニタ。
   - ＋新規セッション（`showNewSessionMenu`）— ghq base リポジトリ検索ピッカー→`git worktree add`→Ghostty 新窓で `claude`（cwd=worktree）。
@@ -83,6 +85,7 @@ env -u HERDR_ENV -u HERDR_SOCKET_PATH -u HERDR_PANE_ID -u HERDR_TAB_ID -u HERDR_
 ## 地雷リスト（この開発で踏んだもの全部）
 
 - **rebuild 経路でメインスレッド同期サブプロセスを走らせない**（2026-07-14 実測）。旧 `claudeAccount()` は5分キャッシュ切れのたび `claude auth status`（〜0.3s）を rebuild 内で同期実行し、全ビュー撤去直後だったため**空のパネルが約0.5秒画面に出て「HUD が閉じて開く」ように見えた**（フレームキャプチャで確証。ウィンドウ枠・バッファ監視には写らない）。対策は二重: ①facts 系は必ず stale-while-revalidate（prInfo と同型・`onAccountChanged`）②rebuild は**新ビューを全部構築してから旧ビューと入れ替える**（teardown-first に戻さないこと）。
+- **`NSStackView.edgeInsets` は popover の contentViewController.view に直接使うと無視される**（2026-07-15 実測: インセットを 9→13→22 に変えてもポップオーバー幅が 131pt から1pxも動かず、合成ホバー＋ウィンドウ実測で確定）。パディングは**素の NSView ラッパー＋明示制約**で付ける（`showHoverTip` 参照）。あわせて `fittingSize` は**圧縮可能なラベルを潰した最小値**を返すので、採寸前に全 NSTextField の compression resistance を required にする（同関数の `harden`）。
 - **非アクティブパネルでは `NSToolTip`・`NSCursor`（ポインタ変更）・`NSApp.activate` が効かない**。→ ツールチップは自前ヒント行、カーソル変更は諦め、ポップオーバー表示時は明示的に `NSApp.activate(ignoringOtherApps:)`。
 - **Shepherd（決してアクティブにならない accessory app）発の AppleScript では、Ghostty の `activate window` がウィンドウ前面化だけ許可されアプリのアクティブ化を拒否されることがある**（macOS 14+ cooperative activation。ペインは見えるのにキー入力が別アプリに行く — 2026-07-08 実機報告）。→ クリック受領直後に `NSApp.yieldActivation(toApplicationWithBundleIdentifier:)` で権限を譲渡し、AppleScript 側にもアプリレベル `activate` を入れる（`jumpToZellij` / `focusGhosttyZellijWindow` 参照）。
 - **Ghostty の操作は AppleScript API 一択**。`open -na` は幽霊インスタンス＋二重配送、`open -a`（-nなし）は起動済みアプリに引数を渡さない、`-e` 直接実行はシェルを介さず環境が欠落する。→ ジャンプは `new window with configuration {command}`（新規）/ `activate window`（既存、id は UserDefaults 永続化）。**Shepherd 自身が `new window` で作った window id だけを信頼**（zellij 等の既存 window id を種付けしない）。surface configuration には `initial working directory` があるので、新規セッションは worktree を cwd に指定して開ける（シェル経由不要）。初回に自動化のTCC同意ダイアログ（Shepherd→Ghostty）が出る。

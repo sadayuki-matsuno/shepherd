@@ -50,6 +50,52 @@ extension AppDelegate {
         rebuild(rows: lastRows)
     }
 
+    // Hover tooltip popover (2026-07-15): a small label anchored at the hovered control, same
+    // hover-popover pattern as the family peek below. Replaces the bottom hint line for details
+    // that belong to a specific element (the title-row glyph) — the shared line at the HUD's
+    // bottom edge was effectively invisible.
+    func showHoverTip(_ content: NSView, from anchor: NSView) {
+        hoverTipPopover?.close()
+        // Padding via explicit constraints — NSStackView.edgeInsets is ignored when the stack is
+        // the popover's content view (measured 2026-07-15: the window stayed 131pt wide across
+        // inset changes), so the breathing room lives in this wrapper instead.
+        let padded = NSView()
+        content.translatesAutoresizingMaskIntoConstraints = false
+        padded.addSubview(content)
+        NSLayoutConstraint.activate([
+            content.topAnchor.constraint(equalTo: padded.topAnchor, constant: 12),
+            content.bottomAnchor.constraint(equalTo: padded.bottomAnchor, constant: -12),
+            content.leadingAnchor.constraint(equalTo: padded.leadingAnchor, constant: 20),
+            content.trailingAnchor.constraint(equalTo: padded.trailingAnchor, constant: -20),
+        ])
+        let vc = NSViewController(); vc.view = padded
+        let pop = NSPopover(); pop.contentViewController = vc; pop.behavior = .applicationDefined
+        // The HUD is always dark — pin the popover's appearance so it never pops up as a white
+        // bubble on a light-mode system.
+        pop.appearance = NSAppearance(named: .darkAqua)
+        // Without an explicit contentSize the popover opens as an empty bubble — the content has
+        // no window yet, so auto-layout never resolves it (2026-07-15 report). And fittingSize
+        // happily CRUSHES compressible labels (truncation is "satisfied"), so every text field
+        // must resist compression before measuring or the tip comes out clipped.
+        func harden(_ v: NSView) {
+            if v is NSTextField {
+                v.setContentCompressionResistancePriority(.required, for: .horizontal)
+                v.setContentHuggingPriority(.required, for: .horizontal)
+            }
+            v.subviews.forEach(harden)
+        }
+        harden(content)
+        padded.layoutSubtreeIfNeeded()
+        pop.contentSize = padded.fittingSize
+        pop.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
+        hoverTipPopover = pop
+    }
+
+    func hideHoverTip() {
+        hoverTipPopover?.close()
+        hoverTipPopover = nil
+    }
+
     // Family peek popover (C7): hovering a collapsed family's summary previews its children.
     func showFamilyPeek(children: [AgentRow], from anchor: NSView) {
         familyPeekCloseWork?.cancel()
@@ -708,6 +754,8 @@ extension AppDelegate {
     }
 
     func rebuild(rows: [AgentRow]?) {
+        // A hover tip anchored in the OLD view tree must not outlive the swap below.
+        hideHoverTip()
         // Build the ENTIRE new view tree first, then swap it in — the old views are removed only
         // once their replacements exist. Teardown-first left the panel empty while construction
         // ran, and any main-thread stall in that window (a subprocess in claudeAccount, say) put

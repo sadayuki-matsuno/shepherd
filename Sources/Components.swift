@@ -480,6 +480,101 @@ func pill(_ text: String, color: NSColor) -> NSView {
 // A tiny monospace badge — model tier (FABLE / OPUS / …) and permission mode (PLAN / ⏵⏵ …).
 func modelChip(_ info: ModelInfo) -> NSView { tinyChip(info.name, color: info.color) }
 
+// MARK: - Instrument glyphs (2026-07-15 card redesign: icon + text, no pill)
+//
+// The chip row's word-pills became instruments — a small drawn glyph whose SHAPE carries the
+// meaning, followed by the text that confirms it. Model = tier bars (capability as height),
+// permission = a lock (how far the guard is off), advisor = a dashed ring (a consultant that
+// isn't resident). Pills remain only for attention-worthy state (BG / parked).
+
+// Tier bars: 4 slots, `tier` of them filled in the tier colour, the rest as faint ghost stubs —
+// the ghost ladder keeps the glyph's optical box constant across tiers, so every instrument
+// centers identically against its label. Height IS the message.
+func tierBarsImage(tier: Int, color: NSColor) -> NSImage {
+    // Max bar height 11 ≈ a shade over the 10.5pt label's cap height — present, not towering.
+    // Ghost stubs use surface1: Cat.surface vanished into the card fill and the ladder read as
+    // a bottom-heavy blob (2026-07-15 zoom check).
+    NSImage(size: NSSize(width: 17, height: 11), flipped: false) { _ in
+        let heights: [CGFloat] = [3.5, 6, 8.5, 11]
+        for i in 0..<4 {
+            let r = NSRect(x: CGFloat(i) * 4.5, y: 0, width: 3, height: heights[i])
+            (i < tier ? color : Cat.surface1.withAlphaComponent(0.8)).setFill()
+            NSBezierPath(roundedRect: r, xRadius: 1.1, yRadius: 1.1).fill()
+        }
+        return true
+    }
+}
+
+// Permission-mode classifier (the drawn lock glyph itself is gone, 2026-07-15 evening —
+// the mode now tints the title row's where-it-runs glyph; this enum remains as the
+// "known mode" predicate behind lockGlyph(for:)).
+enum LockGlyph { case closed, unlatched, open }
+
+// "Consults →" arrow between the model and its advisor. Drawn, not the text glyph "→" —
+// a 10.5pt text arrow rendered as a faint smudge (2026-07-15 feedback); this one has a real
+// shaft and chevron at instrument weight.
+func advisorArrowImage(color: NSColor) -> NSImage {
+    NSImage(size: NSSize(width: 14, height: 10), flipped: false) { _ in
+        color.setStroke()
+        let shaft = NSBezierPath()
+        shaft.lineWidth = 1.6
+        shaft.lineCapStyle = .round
+        shaft.move(to: NSPoint(x: 1, y: 5))
+        shaft.line(to: NSPoint(x: 11.5, y: 5))
+        shaft.stroke()
+        let head = NSBezierPath()
+        head.lineWidth = 1.6
+        head.lineCapStyle = .round
+        head.lineJoinStyle = .round
+        head.move(to: NSPoint(x: 7.5, y: 1.5))
+        head.line(to: NSPoint(x: 12, y: 5))
+        head.line(to: NSPoint(x: 7.5, y: 8.5))
+        head.stroke()
+        return true
+    }
+}
+
+// One instrument: glyph + confirming text, straight on the card (no pill background).
+// The glyph's BOTTOM sits on the label's baseline (like a letter standing on the same ground) —
+// center-to-center alignment made icons ride visibly low, because an all-caps label's optical
+// center is above its geometric one (empty descender; 2026-07-15 zoom check).
+func instrument(_ image: NSImage, _ text: String, color: NSColor) -> NSView {
+    let iv = NSImageView(image: image)
+    iv.contentTintColor = color   // tints SF-symbol (template) glyphs; drawn images keep their ink
+    iv.translatesAutoresizingMaskIntoConstraints = false
+    let l = NSTextField(labelWithString: text)
+    l.font = NSFont.monospacedSystemFont(ofSize: 10.5, weight: .bold)
+    l.textColor = color
+    l.translatesAutoresizingMaskIntoConstraints = false
+    l.setContentCompressionResistancePriority(.required, for: .horizontal)
+    let box = NSView()
+    box.translatesAutoresizingMaskIntoConstraints = false
+    box.addSubview(iv)
+    box.addSubview(l)
+    NSLayoutConstraint.activate([
+        iv.leadingAnchor.constraint(equalTo: box.leadingAnchor),
+        // Drawn glyphs (bars) stand on the label's baseline like letters; SF symbols carry their
+        // own optical padding and are designed to CENTER against text — baseline-grounding them
+        // left the bubble visibly adrift (2026-07-15 feedback). -1 lifts to the caps' optical
+        // center (all-caps labels have an empty descender).
+        image.isTemplate
+            ? iv.centerYAnchor.constraint(equalTo: l.centerYAnchor, constant: -1)
+            : iv.bottomAnchor.constraint(equalTo: l.lastBaselineAnchor, constant: 0.5),
+        iv.widthAnchor.constraint(equalToConstant: image.size.width),
+        iv.heightAnchor.constraint(equalToConstant: image.size.height),
+        l.leadingAnchor.constraint(equalTo: iv.trailingAnchor, constant: 4),
+        l.trailingAnchor.constraint(equalTo: box.trailingAnchor),
+        l.centerYAnchor.constraint(equalTo: box.centerYAnchor),
+        // EXACT height — a ">=" pair left the box's height ambiguous and the chips row
+        // stretched to fill the card (2026-07-15). 14 ≈ the 10.5pt bold mono line height.
+        box.heightAnchor.constraint(equalToConstant: 14),
+    ])
+    box.setContentHuggingPriority(.required, for: .horizontal)
+    box.setContentHuggingPriority(.required, for: .vertical)
+    box.setContentCompressionResistancePriority(.required, for: .horizontal)
+    return box
+}
+
 func tinyChip(_ text: String, color: NSColor, symbol: String? = nil) -> NSView {
     let v = NSView()
     v.wantsLayer = true
@@ -487,10 +582,10 @@ func tinyChip(_ text: String, color: NSColor, symbol: String? = nil) -> NSView {
     v.layer?.cornerRadius = 6
     let l: NSTextField
     if let symbol = symbol {
-        l = symbolLabel(symbol, text, size: 9, weight: .bold, color: color, mono: true)
+        l = symbolLabel(symbol, text, size: 10, weight: .bold, color: color, mono: true)
     } else {
         l = NSTextField(labelWithString: text)
-        l.font = NSFont.monospacedSystemFont(ofSize: 9, weight: .bold)
+        l.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .bold)
         l.textColor = color
     }
     l.translatesAutoresizingMaskIntoConstraints = false

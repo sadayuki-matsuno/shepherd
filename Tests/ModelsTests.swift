@@ -908,4 +908,32 @@ func runModelsTests() {
                  DeckPage.columns, "column gone → back to the column list")
         expectEq(resolvedDeckPage(sections: [], page: .columns), DeckPage.columns)
     }
+
+    test("instruments: modelTier / lockGlyph / runtimeGlyph mappings") {
+        expectEq(modelTier("HAIKU"), 1)
+        expectEq(modelTier("SONNET"), 2)
+        expectEq(modelTier("OPUS"), 3)
+        expectEq(modelTier("FABLE"), 4)
+        expectEq(modelTier("SOMETHING"), 0, "unknown display name → text-chip fallback")
+        expect(lockGlyph(for: "plan") == .closed, "plan = closed lock")
+        expect(lockGlyph(for: "acceptEdits") == .unlatched, "edits = unlatched + check")
+        expect(lockGlyph(for: "dontAsk") == .unlatched, "dontAsk rides the unlatched glyph")
+        expect(lockGlyph(for: "bypassPermissions") == .open, "bypass = swung open")
+        expectNil(lockGlyph(for: nil), "no mode → no instrument")
+        expectNil(lockGlyph(for: "default"), "default → no instrument")
+        expectNil(lockGlyph(for: "someFutureMode"), "unknown mode keeps the text-chip fallback")
+        expectEq(runtimeGlyph(backend: .zellij, runtime: "zellij"), "square.split.2x1")
+        expectEq(runtimeGlyph(backend: .vscode, runtime: "VS Code"), "chevron.left.forwardslash.chevron.right")
+        expectEq(runtimeGlyph(backend: .other, runtime: "claude -p"), "terminal")
+        expectEq(runtimeGlyph(backend: .other, runtime: "Ghostty"), "apple.terminal")
+        expectNil(runtimeGlyph(backend: .other, runtime: nil), "no runtime → no glyph")
+    }
+
+    test("artifactBadgeText: sole title opens directly, 2+ collapse to（他+N）") {
+        expect(artifactBadgeText(title: "レポート", favicon: "📮", count: 1).hasSuffix(" ↗"), "single artifact keeps the ↗")
+        let multi = artifactBadgeText(title: "調査レポート", favicon: nil, count: 3)
+        expect(multi.contains("+2"), "count 3 → +2 more: \(multi)")
+        expect(!multi.hasSuffix(" ↗"), "the collapsed badge opens a picker, not a page")
+        expect(artifactBadgeText(title: nil, favicon: nil, count: 2).contains("Artifact"), "untitled falls back to 'Artifact'")
+    }
 }

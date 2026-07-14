@@ -83,9 +83,14 @@ extension AppDelegate {
         row("", color: Cat.overlay,
             L("遠隔操作（/remote-control）が有効", "remote-control is enabled for this pane"),
             symbol: "antenna.radiowaves.left.and.right")
-        row("PLAN/EDITS/…", color: Cat.lavender,
-            L("Claude の権限モード: PLAN=計画のみ ⏵⏵EDITS=編集自動許可 BYPASS=全許可", "Claude's permission mode: PLAN / auto-accept EDITS / BYPASS all prompts"))
-        row("FABLE", color: Cat.mauve, L("使用中のモデル", "the model in use"))
+        row(L("段数バー + FABLE", "tier bars + FABLE"), color: Cat.mauve,
+            L("使用中のモデル。バーの本数が能力段位（1=HAIKU〜4=FABLE）— 盤面一望で重いモデルが分かる", "the model in use; filled bars = capability tier (1 = HAIKU … 4 = FABLE) — heavy models read at a glance"))
+        row(L("→ 吹き出し + OPUS", "→ bubble + OPUS"), color: Cat.blue,
+            L("アドバイザー（--advisor）: 要所だけ自動相談される相談役モデル", "the advisor (--advisor): the model this session consults at key decisions"),
+            symbol: "bubble.left")
+        row("", color: Cat.overlay,
+            L("タイトル先頭の実行環境: 分割ペイン=zellij / </>=エディタ / 窓付き端末 / 素のプロンプト=headless。色が権限モード（紫=PLAN 緑=EDITS 琥珀=NO-ASK 赤=BYPASS 灰=毎回確認）。ホバーで詳細", "the leading where-it-runs glyph: split panes = zellij, </> = editor, terminal window, bare prompt = headless. Its TINT is the permission mode (lavender = PLAN, green = EDITS, amber = NO-ASK, red = BYPASS, grey = ask). Hover for details"),
+            symbols: ["square.split.2x1", "chevron.left.forwardslash.chevron.right", "apple.terminal", "terminal"])
         row("±8", color: Cat.overlay, L("未コミットの変更ファイル数", "uncommitted changed-file count"))
         row("◥", color: Cat.amber,
             L("カード右上の折り目 = 未コミットの変更あり", "top-right dog-ear = the worktree has uncommitted changes"))
@@ -104,13 +109,13 @@ extension AppDelegate {
             L("右クリックメニューの場所情報: worktree ／ 通常ディレクトリ ／ ブランチ", "the context menu's location rows: linked worktree / plain directory / branch"),
             symbols: ["arrow.triangle.branch", "folder", "arrow.branch"])
 
-        section(L("成果物バッジ", "DELIVERABLES"))
-        row("PR #12 ↗", color: Cat.teal,
-            L("PR と CI 結果（✓=成功 ✕=失敗 ◌=実行中）。クリックで PR を開く", "the PR and its CI (✓ pass, ✕ fail, dashed circle running). Click to open"),
-            symbol: "checkmark")
-        row("…↗", color: Cat.blue,
-            L("Claude が公開した Artifact。クリックで開く（3件以上は ×N でまとめ）", "an Artifact Claude published. Click to open (×N collapses 3+)"),
+        section(L("成果物", "DELIVERABLES"))
+        row(L("…（他+2）", "… (+2)"), color: Cat.blue,
+            L("Claude が公開した Artifact。1件ならクリックで開く。2件以上は最新タイトル＋件数になり、クリックで一覧から選択", "Artifacts Claude published. A sole one opens on click; 2+ collapse to the newest title + count — click to pick from the list"),
             symbol: "doc.text")
+        row(L("PR は右クリック", "PR: right-click"), color: Cat.teal,
+            L("PR はカード面には出ません — 右クリックメニューの「✓/✗/● PR #N を開く」から（記号は CI 結果）", "the PR left the card face — open it from the right-click menu (\"✓/✗/● Open PR #N\"; the mark is the CI outcome)"),
+            symbol: "checkmark")
 
         section(L("親子セッション", "PARENT & CHILDREN"))
         row(L("子 2 件", "2 children"), color: Cat.subtext,

@@ -252,10 +252,82 @@ extension AppDelegate {
         title.lineBreakMode = .byTruncatingTail
         title.cell?.wraps = true
         title.cell?.isScrollable = false
-        title.preferredMaxLayoutWidth = max(innerW - 24, 80)
+        // The leading where-it-runs glyph (~13px + spacing) eats title-row width too (2026-07-15).
+        let glyphW: CGFloat = runtimeGlyph(backend: row.backend, runtime: row.runtime) != nil ? 19 : 0
+        title.preferredMaxLayoutWidth = max(innerW - 24 - glyphW, 80)
         title.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         title.setContentCompressionResistancePriority(.required, for: .vertical)
         title.setContentHuggingPriority(.required, for: .vertical)
+        // Where the session runs, as a LEADING silhouette (2026-07-15): the one icon-only
+        // instrument — zellij panes / editor brackets / terminal window / bare prompt are
+        // recognizable without a word. Hover puts the name + details on the hint line.
+        if let rt = row.runtime, let sym = runtimeGlyph(backend: row.backend, runtime: rt) {
+            let mark = NSImageView()
+            mark.image = NSImage(systemSymbolName: sym, accessibilityDescription: rt)?
+                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 11, weight: .medium))
+            // The glyph's TINT is the permission mode (2026-07-15 evening — the lock instrument
+            // is gone; the mode is rarely-consulted config, so it rides this ambient mark:
+            // lavender = plan, green = edits auto-accepted, red = bypass, grey = default/ask).
+            let mode = permissionModeChip(row.permissionMode)
+            mark.contentTintColor = mode?.color ?? Cat.overlay
+            mark.translatesAutoresizingMaskIntoConstraints = false
+            // Structured tip content: [glyph + runtime name] / permission chip / zellij session.
+            // Built lazily per hover — a plain sentence read as debug output (2026-07-15 feedback).
+            let tipContent: () -> NSView = {
+                let tip = NSStackView()
+                tip.orientation = .vertical
+                tip.alignment = .leading
+                tip.spacing = 8
+                // (No edgeInsets — showHoverTip's wrapper provides the padding; NSStackView
+                // insets are ignored on the popover path, 2026-07-15 measured.)
+                let head = NSStackView()
+                head.orientation = .horizontal
+                head.spacing = 6
+                if let img = NSImage(systemSymbolName: sym, accessibilityDescription: rt)?
+                    .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)) {
+                    let iv = NSImageView(image: img)
+                    iv.contentTintColor = mode?.color ?? Cat.overlay
+                    head.addArrangedSubview(iv)
+                }
+                head.addArrangedSubview(makeLabel(rt, size: 12.5, weight: .bold, color: Cat.text))
+                // (The zellij session name is gone, 2026-07-15 — auto-generated names like
+                // "implacable-…" overflowed the tip and answered nothing. Sendability keeps
+                // its chip; the name itself only matters to zellij internals.)
+                if row.zellijSendable {
+                    head.addArrangedSubview(tinyChip(L("送信可", "sendable"), color: Cat.green))
+                }
+                tip.addArrangedSubview(head)
+                let modeWord = mode.map { $0.label.replacingOccurrences(of: "⏵⏵ ", with: "") }
+                    ?? L("毎回確認", "ask every time")
+                let modeRow = NSStackView()
+                modeRow.orientation = .horizontal
+                modeRow.spacing = 6
+                modeRow.addArrangedSubview(makeLabel(L("権限モード", "permission"), size: 10.5, color: Cat.subtext))
+                modeRow.addArrangedSubview(tinyChip(modeWord, color: mode?.color ?? Cat.overlay))
+                tip.addArrangedSubview(modeRow)
+                return tip
+            }
+            let box = HoverView()
+            // Tooltip popover AT the glyph (2026-07-15) — the shared bottom hint line was
+            // effectively invisible for this.
+            box.onHover = { [weak self, weak box] entered in
+                if entered, let b = box { self?.showHoverTip(tipContent(), from: b) } else { self?.hideHoverTip() }
+            }
+            box.translatesAutoresizingMaskIntoConstraints = false
+            box.addSubview(mark)
+            // line1 is .top-aligned (the title may wrap to 2 lines) — the glyph box matches the
+            // title's FIRST line height and centers the icon in it, so glyph and first text line
+            // share an optical center instead of drifting (2026-07-15 feedback).
+            NSLayoutConstraint.activate([
+                box.heightAnchor.constraint(equalToConstant: ceil(titleSize * 1.3)),
+                mark.centerYAnchor.constraint(equalTo: box.centerYAnchor),
+                mark.leadingAnchor.constraint(equalTo: box.leadingAnchor),
+                mark.trailingAnchor.constraint(equalTo: box.trailingAnchor),
+            ])
+            box.setContentHuggingPriority(.required, for: .horizontal)
+            box.setContentCompressionResistancePriority(.required, for: .horizontal)
+            line1.addArrangedSubview(box)
+        }
         line1.addArrangedSubview(title)
         if let sub = subtitle, !sub.isEmpty {
             let cap = makeLabel(sub, size: 10.5, color: Cat.overlay)
@@ -268,17 +340,8 @@ extension AppDelegate {
         line1.addArrangedSubview(spacer)
         // (The old top-right "⌄N" fold toggle lived here — replaced by the bottom family strip,
         // which is far harder to miss. 2026-07-08.)
-        // A VSCode-family session wears the code-brackets mark where the terminal rows wear none —
-        // it's the one board glance that says "this card opens an editor window, not a terminal".
-        if row.backend == .vscode {
-            let mark = NSImageView()
-            mark.image = NSImage(systemSymbolName: "chevron.left.forwardslash.chevron.right", accessibilityDescription: nil)?
-                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 9, weight: .medium))
-            mark.contentTintColor = Cat.overlay
-            mark.toolTip = editorDisplayName(row.editorBundleId)
-            mark.setContentCompressionResistancePriority(.required, for: .horizontal)
-            line1.addArrangedSubview(mark)
-        }
+        // (The trailing vscode-only </> mark is gone, 2026-07-15 — every session now wears its
+        // where-it-runs glyph at the LEADING edge of the title row, wired above.)
         if remoteEnabledSessions.contains(row.sessionId) {
             let mark = NSImageView()
             mark.image = NSImage(systemSymbolName: "antenna.radiowaves.left.and.right", accessibilityDescription: nil)?
@@ -296,21 +359,61 @@ extension AppDelegate {
         // BG for a cc-daemon background agent (2026-07-09) — the one chip that changes what "close"
         // does, so it's worth seeing at a glance.
         let modeChip = permissionModeChip(row.permissionMode)
-        if modeChip != nil || row.model != nil || row.isBackground || row.runtime != nil {
+        if modeChip != nil || row.model != nil || row.advisor != nil || row.isBackground {
             let chips = NSStackView()
             chips.orientation = .horizontal
-            chips.spacing = 6
+            chips.spacing = 8
             chips.alignment = .centerY
-            if let pm = modeChip { chips.addArrangedSubview(tinyChip(pm.label, color: pm.color)) }
-            if let m = row.model { chips.addArrangedSubview(modelChip(m)) }
-            // Advisor pairing (`--advisor`): the session escalates key decisions to this model.
-            // A "+MODEL" chip right after the model chip, so a board of same-color model chips
-            // still reveals which sessions carry a stronger second opinion.
-            if let a = row.advisor { chips.addArrangedSubview(tinyChip("+" + a.name, color: a.color)) }
+            // (The permission-mode lock is gone, 2026-07-15 evening: the mode now tints the
+            // title row's where-it-runs glyph — rarely-consulted config, ambient by design.
+            // Unknown future modes keep the pill fallback here so they stay visible.)
+            if let pm = modeChip, lockGlyph(for: row.permissionMode) == nil {
+                chips.addArrangedSubview(tinyChip(pm.label, color: pm.color))
+            }
+            // Model = tier bars + name (M1): capability reads as bar height across the board
+            // without reading a word; the name confirms it. Unknown display names (tier 0)
+            // fall back to the plain chip.
+            if let m = row.model {
+                let tier = modelTier(m.name)
+                chips.addArrangedSubview(tier > 0
+                    ? instrument(tierBarsImage(tier: tier, color: m.color), m.name, color: m.color)
+                    : modelChip(m))
+            }
+            // Advisor = "→ speech bubble + name": the arrow reads as "consults", so
+            // MODEL → 💬 MODEL says who asks whom even when both tiers match (2026-07-15
+            // feedback — bubble alone didn't explain itself). Hover spells it out.
+            if let a = row.advisor,
+               let bubble = NSImage(systemSymbolName: "bubble.left", accessibilityDescription: "advisor")?
+                   .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)) {
+                let arrow = NSImageView(image: advisorArrowImage(color: Cat.subtext))
+                arrow.setContentHuggingPriority(.required, for: .horizontal)
+                arrow.setContentCompressionResistancePriority(.required, for: .horizontal)
+                chips.addArrangedSubview(arrow)
+                chips.setCustomSpacing(5, after: arrow)
+                if let prev = chips.arrangedSubviews.dropLast().last { chips.setCustomSpacing(5, after: prev) }
+                let adv = HoverView()
+                let inst = instrument(bubble, a.name, color: a.color)
+                inst.translatesAutoresizingMaskIntoConstraints = false
+                adv.translatesAutoresizingMaskIntoConstraints = false
+                adv.addSubview(inst)
+                NSLayoutConstraint.activate([
+                    inst.topAnchor.constraint(equalTo: adv.topAnchor),
+                    inst.bottomAnchor.constraint(equalTo: adv.bottomAnchor),
+                    inst.leadingAnchor.constraint(equalTo: adv.leadingAnchor),
+                    inst.trailingAnchor.constraint(equalTo: adv.trailingAnchor),
+                ])
+                let advTip = L("アドバイザー（--advisor）: 方針決定・停滞・完了前に自動相談される相談役モデル",
+                               "advisor (--advisor): consulted automatically before big decisions, when stuck, and before finishing")
+                adv.onHover = { [weak self, weak adv] entered in
+                    if entered, let v = adv {
+                        let l = makeLabel(advTip, size: 11, color: Cat.text)
+                        self?.showHoverTip(l, from: v)
+                    } else { self?.hideHoverTip() }
+                }
+                chips.addArrangedSubview(adv)
+            }
             if row.isBackground { chips.addArrangedSubview(tinyChip("BG", color: Cat.mauve)) }
-            // Where the session runs (zellij / VS Code / Ghostty / claude -p …) — subdued, it's
-            // orientation, not state.
-            if let rt = row.runtime { chips.addArrangedSubview(tinyChip(rt, color: Cat.subtext)) }
+            // (The runtime chip moved to the title row as a leading glyph, 2026-07-15.)
             // 🅿 a live worker parked idle — holding memory, likely forgotten (see parkedChip).
             if let parked = parkedChip(row) { chips.addArrangedSubview(tinyChip(parked.label, color: parked.color, symbol: "parkingsign")) }
             inner.addArrangedSubview(chips)
@@ -574,21 +677,8 @@ extension AppDelegate {
     // "×N" chip opening the full list.
     func deliverableBadges(for row: AgentRow) -> [NSView] {
         var out: [NSView] = []
-        if let pr = row.prNo {
-            let ci = row.ciState
-            // CI outcome leads the badge as a symbol (was a " ✓/✗/●" glyph glued into the text).
-            let ciSymbol = ci.map { $0 == .pass ? "checkmark" : $0 == .fail ? "xmark" : "circle.dashed" }
-            let fail = ci == .fail
-            out.append(badge("PR #\(pr) ↗", symbol: ciSymbol, fg: fail ? Cat.red : Cat.teal,
-                             bg: (fail ? Cat.red : Cat.teal).withAlphaComponent(0.15), tip: row.prUrl) {
-                if let u = row.prUrl.flatMap({ URL(string: $0) }) { NSWorkspace.shared.open(u) }
-            })
-        }
-        for link in row.links where link.label == "PR" && row.prNo == nil {
-            out.append(badge("PR ↗", fg: Cat.teal, bg: Cat.teal.withAlphaComponent(0.14), tip: link.url) {
-                if let u = URL(string: link.url) { NSWorkspace.shared.open(u) }
-            })
-        }
+        // (The PR badge left the card face on 2026-07-15 — rarely clicked from here; it lives on
+        // the right-click menu now, CI state and all. buildCardMenu carries it.)
         // "<favicon> <title-prefix> ↗" for one Artifact.
         func artifactBadge(_ link: AgentLink) -> NSView {
             // A session-chosen favicon emoji is that artifact's identity — keep it. Only the
@@ -601,16 +691,18 @@ extension AppDelegate {
                 if let u = URL(string: link.url) { NSWorkspace.shared.open(u) }
             }
         }
+        // Artifacts show as ONE badge (2026-07-15): the sole artifact opens directly; two or more
+        // become "newest-title（他+N）" and clicking picks from the full list.
         let artifacts = row.links.filter { $0.label == "Artifact" }
-        if artifacts.count <= 2 {
-            for link in artifacts { out.append(artifactBadge(link)) }
-        } else if let latest = artifacts.last {
-            out.append(artifactBadge(latest))
-            let all = artifacts
-            let chip = badge("×\(artifacts.count)", symbol: "doc.on.doc", symbolSize: 12,
-                             fg: Cat.blue, bg: Cat.blue.withAlphaComponent(0.16),
-                             tip: L("すべての Artifact を一覧", "list all \(artifacts.count) artifacts")) {}
-            chip.onClick = { [weak self, weak chip] in if let c = chip { self?.showLinksMenu(all, from: c) } }
+        if artifacts.count == 1 {
+            out.append(artifactBadge(artifacts[0]))
+        } else if artifacts.count >= 2, let latest = artifacts.last {
+            let text = artifactBadgeText(title: latest.title, favicon: latest.favicon, count: artifacts.count)
+            let chip = badge(text, symbol: latest.favicon == nil ? "doc.on.doc" : nil,
+                             fg: Cat.blue, bg: Cat.blue.withAlphaComponent(0.2),
+                             tip: L("クリックで \(artifacts.count) 件から選んで開く",
+                                    "click to pick one of \(artifacts.count) artifacts")) {}
+            chip.onClick = { [weak self, weak chip] in if let c = chip { self?.showLinksMenu(artifacts, from: c) } }
             out.append(chip)
         }
         return out
@@ -778,6 +870,15 @@ extension AppDelegate {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString("claude attach \(id)", forType: .string)
             })
+        }
+        // PR (2026-07-15 — moved off the card face): number + CI outcome, one click to the page.
+        if let pr = row.prNo, let urlStr = row.prUrl, let url = URL(string: urlStr) {
+            let ci = row.ciState.map { $0 == .pass ? "✓ " : $0 == .fail ? "✗ " : "● " } ?? ""
+            menu.addItem(ClosureMenuItem(ci + L("PR #\(pr) を開く ↗", "Open PR #\(pr) ↗")) {
+                NSWorkspace.shared.open(url)
+            })
+        } else if let prLink = row.links.first(where: { $0.label == "PR" }), let url = URL(string: prLink.url) {
+            menu.addItem(ClosureMenuItem(L("PR を開く ↗", "Open PR ↗")) { NSWorkspace.shared.open(url) })
         }
         if sendable {
             menu.addItem(ClosureMenuItem(L("遠隔操作（/remote-control）", "Remote-control")) { [weak self] in self?.remoteControlRow(row) })
