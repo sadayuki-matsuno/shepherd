@@ -185,6 +185,7 @@
         <tr><td>#123</td><td>The GitHub issue being worked on (from the branch name or label).</td></tr>
         <tr><td>PLAN / ⏵⏵ EDITS / BYPASS</td><td>Claude's permission mode: plan-only / edits auto-accepted / all prompts bypassed.</td></tr>
         <tr><td>FABLE / OPUS / …</td><td>The model in use. A board where every chip is the same color usually means nobody chose models — see <a href="playbook.html">the playbook</a>.</td></tr>
+        <tr><td>+OPUS / +FABLE / …</td><td>The session runs with an <em>advisor</em> (<code>--advisor</code>): a stronger model consulted automatically at key decisions. The chip means the pairing is configured, not that a consultation just happened. Subagent cards inherit it from their session.</td></tr>
         <tr><td>zellij / VS Code / Ghostty / claude -p</td><td>What the session runs on: a zellij pane, a VS Code-family integrated terminal, a bare terminal app, or a headless <code>claude -p</code> run. Background workers wear the BG chip instead.</td></tr>
         <tr><td>±8</td><td>Uncommitted changed files in that worktree.</td></tr>
         <tr><td>◥ (amber dog-ear)</td><td>Top-right fold = the worktree has uncommitted changes. Fine while working; a reminder before closing.</td></tr>
@@ -204,6 +205,7 @@
         <tr><td>#123</td><td>対応中の GitHub issue（ブランチ名またはラベルから取得）。</td></tr>
         <tr><td>PLAN / ⏵⏵ EDITS / BYPASS</td><td>Claude の権限モード: プランのみ / 編集自動承認 / すべてのプロンプトをバイパス。</td></tr>
         <tr><td>FABLE / OPUS / …</td><td>使用中のモデル。盤面のチップが全部同じ色なのは、たいてい誰もモデルを選んでいないサインです — <a href="playbook.html">群れの導き方</a>を参照。</td></tr>
+        <tr><td>+OPUS / +FABLE / …</td><td>そのセッションが<em>アドバイザー</em>（<code>--advisor</code>）付きで動いています: 要所の判断だけ自動相談される上位モデル。チップは「構成されている」ことを示すもので、「いま相談した」印ではありません。サブエージェントのカードにはセッションの設定が継承されて表示されます。</td></tr>
         <tr><td>zellij / VS Code / Ghostty / claude -p</td><td>セッションの実行環境: zellij ペイン、VS Code 系の統合ターミナル、素のターミナルアプリ、または headless の <code>claude -p</code> 実行。バックグラウンドワーカーは代わりに BG チップが付きます。</td></tr>
         <tr><td>±8</td><td>その worktree の未コミットの変更ファイル数。</td></tr>
         <tr><td>◥（琥珀の折り目）</td><td>右上の折り目は worktree に未コミットの変更があることを示します。作業中は問題ありません。閉じる前の確認用です。</td></tr>

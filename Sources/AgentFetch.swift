@@ -95,7 +95,7 @@ func fetchAgents() -> [AgentRow] {
         let statusSince = statusSeen[key]!.at
         factsLock.unlock()
 
-        let (model, contextPct) = transcriptCtx(cwd: cwd, sessionId: e.sessionId)
+        let (model, contextPct, advisor) = transcriptCtx(cwd: cwd, sessionId: e.sessionId)
         let g = cwd.isEmpty ? GitFacts(isWorktree: false) : gitFacts(cwd: cwd)
         let dirName = (cwd as NSString).lastPathComponent
         let parentName = ((cwd as NSString).deletingLastPathComponent as NSString).lastPathComponent
@@ -124,7 +124,7 @@ func fetchAgents() -> [AgentRow] {
         // A background worker's `claude agents` name is its AI title and belongs on the activity
         // line; an interactive session's ("shepherd-c3") is a better label than the bare directory.
         let lastPrompt = transcriptTailValue(cwd: cwd, sessionId: e.sessionId, type: "last-prompt", field: "lastPrompt")
-        return AgentRow(sessionId: e.sessionId, model: model, contextPct: contextPct,
+        return AgentRow(sessionId: e.sessionId, model: model, advisor: advisor, contextPct: contextPct,
                         permissionMode: transcriptTailValue(cwd: cwd, sessionId: e.sessionId,
                                                             type: "permission-mode", field: "permissionMode"),
                         status: status,
@@ -180,7 +180,7 @@ func fetchAgents() -> [AgentRow] {
     for r in rows where r.pid != nil && !r.cwd.isEmpty {
         for rec in r.subagents where rec.working {
             let key = rec.transcriptKey(parent: r.sessionId)
-            let (model, contextPct) = transcriptCtx(cwd: r.cwd, sessionId: key)
+            let (model, contextPct, advisor) = transcriptCtx(cwd: r.cwd, sessionId: key)
             let agentCwd = rec.worktreePath ?? r.cwd
             // The subagent's activity is its own last tool call / message (subagentTail), read in
             // its language — not the caller-given task name. Fall back to the name only if its jsonl
@@ -191,6 +191,7 @@ func fetchAgents() -> [AgentRow] {
                 // from its meta — a just-spawned agent has no assistant line yet, and an inherited
                 // model has no meta entry either, so both sources are needed.
                 model: model ?? rec.model.flatMap(modelInfo),
+                advisor: advisor,
                 contextPct: contextPct,
                 activity: rec.activity ?? rec.description ?? rec.name,
                 links: extractLinksFromTranscript(cwd: r.cwd, sessionId: key)))

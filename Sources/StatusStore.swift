@@ -26,7 +26,7 @@ var statusSeen: [String: (status: String, at: Date)] = [:]
 
 // key: session id. Model + context usage read from the transcript tail; refreshed at most
 // every ~20s (transcripts change slower than the refresh cadence). Guarded by factsLock.
-var contextCache: [String: (model: ModelInfo?, pct: Double?, at: Date)] = [:]
+var contextCache: [String: (model: ModelInfo?, pct: Double?, advisor: ModelInfo?, at: Date)] = [:]
 
 // key: session id. Deliverable links accumulated from the transcript jsonl, plus the byte
 // offset already scanned (so each poll only reads newly-appended bytes — the incremental parse

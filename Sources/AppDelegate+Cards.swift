@@ -303,6 +303,10 @@ extension AppDelegate {
             chips.alignment = .centerY
             if let pm = modeChip { chips.addArrangedSubview(tinyChip(pm.label, color: pm.color)) }
             if let m = row.model { chips.addArrangedSubview(modelChip(m)) }
+            // Advisor pairing (`--advisor`): the session escalates key decisions to this model.
+            // A "+MODEL" chip right after the model chip, so a board of same-color model chips
+            // still reveals which sessions carry a stronger second opinion.
+            if let a = row.advisor { chips.addArrangedSubview(tinyChip("+" + a.name, color: a.color)) }
             if row.isBackground { chips.addArrangedSubview(tinyChip("BG", color: Cat.mauve)) }
             // Where the session runs (zellij / VS Code / Ghostty / claude -p …) — subdued, it's
             // orientation, not state.

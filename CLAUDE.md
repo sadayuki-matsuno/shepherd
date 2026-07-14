@@ -27,7 +27,7 @@ Shepherd はこのマシンで動く Claude Code セッション（zellij ペイ
 ### HUD の構造
 
 - **カードは5行構成**（`rowView(for:)`）:
-  1. ドット / 名前 / #issue / `</>`（vscode）/ 遠隔マーク。直下にチップ行: 権限モード・モデル・BG・実行環境（`AgentRow.runtime` — zellij / VS Code / Ghostty / claude -p 等。純関数 `runtimeLabel`、headless の判別はレジストリの `entrypoint`）
+  1. ドット / 名前 / #issue / `</>`（vscode）/ 遠隔マーク。直下にチップ行: 権限モード・モデル・アドバイザー（`+OPUS` 等 — transcript 行レベルの `advisorModel` フィールド由来〔2026-07-15 実測・subagent の jsonl にも継承されて写る〕。「構成あり」の印で「相談した」印ではない）・BG・実行環境（`AgentRow.runtime` — zellij / VS Code / Ghostty / claude -p 等。純関数 `runtimeLabel`、headless の判別はレジストリの `entrypoint`）
   2. status・経過時間・変更ファイル数・⚠（コンテキスト>85%）・📎送信済み
   3. ⑂/📁 ディレクトリパス ⎇ ブランチ（monospace, byTruncatingMiddle）
   4. 成果物バッジ（統合PRバッジ `PR #N ✓/✗ ↗` ＋ Artifact リンク）

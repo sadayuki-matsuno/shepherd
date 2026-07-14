@@ -122,10 +122,11 @@ S = [
              q=T("スキーマ変更を先に staging へ適用しますか？", "Apply the schema change to staging first?"),
              opts=[T("適用する — staging でマイグレーション実行後に続行", "Apply first — run the migration on staging, then continue"),
                    T("あとで — コード変更のみ先に進める", "Later — land the code change only")])),
-    # working: SONNET auto-accepting edits in a linked worktree, 64% context, PR #3262 CI passing
+    # working: SONNET (+OPUS advisor) auto-accepting edits in a linked worktree, PR CI passing
     dict(sid=str(uuid.uuid4()), cwd=f"{src}/checkout-fix-auth-spec", status="busy",
          started=34*60, updated=8*60,
-         model="claude-sonnet-5", usage=(900, 120000, 7100), mode="acceptEdits",
+         model="claude-sonnet-5", advisor="claude-opus-4-8",
+         usage=(900, 120000, 7100), mode="acceptEdits",
          title=T("flaky な認証テストの修正", "Fix the flaky auth spec"),
          prompt=T("認証テストがたまに落ちるので直して", "The auth spec fails intermittently — fix it")),
     # working lead: FABLE on bypass, publishes an Artifact, runs an Explore subagent
@@ -190,6 +191,8 @@ for i, s in enumerate(S):
                  message=dict(role="assistant", model=s["model"],
                               usage=dict(input_tokens=inp, cache_read_input_tokens=cr,
                                          cache_creation_input_tokens=cc)))
+    # Advisor pairing shows as a line-level advisorModel field (same as a real `--advisor` run).
+    if "advisor" in s: final["advisorModel"] = s["advisor"]
     if "question" in s:
         q = s["question"]
         final["message"]["content"] = [dict(
