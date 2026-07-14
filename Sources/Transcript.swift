@@ -26,16 +26,16 @@ func transcriptMtime(cwd: String, sessionId: String) -> Date? {
 // character. `String(data:encoding:.utf8)` returns nil for the WHOLE slice when that happens, not just
 // for the split character — so tail slices are decoded leniently. The first line of a slice is a
 // fragment either way, and every reader below skips lines that don't parse as JSON.
-func readTranscriptContext(cwd: String, sessionId: String) -> (model: ModelInfo?, pct: Double?) {
-    guard !cwd.isEmpty, !sessionId.isEmpty else { return (nil, nil) }
+func readTranscriptContext(cwd: String, sessionId: String) -> (model: ModelInfo?, pct: Double?, advisor: ModelInfo?) {
+    guard !cwd.isEmpty, !sessionId.isEmpty else { return (nil, nil, nil) }
     let dir = (claudeProjectsDir as NSString).appendingPathComponent(sanitizeCwd(cwd))
     let path = (dir as NSString).appendingPathComponent("\(sessionId).jsonl")
-    guard let fh = FileHandle(forReadingAtPath: path) else { return (nil, nil) }
+    guard let fh = FileHandle(forReadingAtPath: path) else { return (nil, nil, nil) }
     defer { try? fh.close() }
     let size = (try? fh.seekToEnd()) ?? 0
-    if size > 65_536, (try? fh.seek(toOffset: size - 65_536)) == nil { return (nil, nil) }
+    if size > 65_536, (try? fh.seek(toOffset: size - 65_536)) == nil { return (nil, nil, nil) }
     else if size <= 65_536 { try? fh.seek(toOffset: 0) }
-    guard let data = try? fh.readToEnd() else { return (nil, nil) }
+    guard let data = try? fh.readToEnd() else { return (nil, nil, nil) }
     let text = String(decoding: data, as: UTF8.self)
     // A subagent's own transcript (sessionId = "<parent>/subagents/agent-<id>") is ALL sidechain
     // lines — every assistant record in agent-<id>.jsonl carries isSidechain:true (measured
@@ -57,9 +57,13 @@ func readTranscriptContext(cwd: String, sessionId: String) -> (model: ModelInfo?
         let window = contextWindow(model: msg["model"] as? String, observedTotal: total)
         let pct = total > 0 ? min(1.0, Double(total) / Double(window)) : nil
         let model = (msg["model"] as? String).flatMap(modelInfo)
-        return (model, pct)
+        // Advisor-paired sessions stamp every assistant line with a top-level "advisorModel"
+        // (2026-07-15 measured, incl. subagent transcripts — the session setting propagates).
+        // Its presence means "advisor configured", not "advisor was consulted".
+        let advisor = (obj["advisorModel"] as? String).flatMap(modelInfo)
+        return (model, pct, advisor)
     }
-    return (nil, nil)
+    return (nil, nil, nil)
 }
 
 // Accept only a well-formed http(s) URL (trims trailing punctuation / full-width junk),
@@ -896,15 +900,15 @@ func firstPromptFromSessionsIndex(cwd: String, sessionId: String) -> String? {
 
 // Model + context %, cached ~20s (transcripts change slower than a poll). Shared by the herdr
 // and status-only paths.
-func transcriptCtx(cwd: String, sessionId: String) -> (model: ModelInfo?, pct: Double?) {
-    guard !sessionId.isEmpty else { return (nil, nil) }
+func transcriptCtx(cwd: String, sessionId: String) -> (model: ModelInfo?, pct: Double?, advisor: ModelInfo?) {
+    guard !sessionId.isEmpty else { return (nil, nil, nil) }
     factsLock.lock()
     let c = contextCache[sessionId]
     factsLock.unlock()
-    if let c = c, Date().timeIntervalSince(c.at) < 20 { return (c.model, c.pct) }
+    if let c = c, Date().timeIntervalSince(c.at) < 20 { return (c.model, c.pct, c.advisor) }
     let info = readTranscriptContext(cwd: cwd, sessionId: sessionId)
     factsLock.lock()
-    contextCache[sessionId] = (info.model, info.pct, Date())
+    contextCache[sessionId] = (info.model, info.pct, info.advisor, Date())
     factsLock.unlock()
     return info
 }

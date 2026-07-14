@@ -169,9 +169,10 @@ func runTranscriptTests() {
             #"{"type":"assistant","message":{"model":"claude-fable-5","usage":{"input_tokens":50000,"cache_read_input_tokens":100000,"cache_creation_input_tokens":10000}}}"#,
             #"{"type":"user","message":{"content":"no usage here"}}"#,
         ])
-        let (model, pct) = readTranscriptContext(cwd: cwd, sessionId: "ctx-1")
+        let (model, pct, advisor) = readTranscriptContext(cwd: cwd, sessionId: "ctx-1")
         expectEq(model?.name, "FABLE", "latest assistant message wins")
         expectEq(pct, Double(160_000) / 1_000_000.0, "fable-5 divides by its 1M window, not 200k")
+        expectNil(advisor, "no advisorModel field → no advisor")
         writeTranscript(cwd: cwd, sessionId: "ctx-2", lines: [
             #"{"type":"assistant","message":{"model":"claude-haiku-4-5-20251001","usage":{"input_tokens":100000,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}"#,
         ])
@@ -179,6 +180,20 @@ func runTranscriptTests() {
         let missing = readTranscriptContext(cwd: cwd, sessionId: "nope")
         expectNil(missing.model)
         expectNil(missing.pct)
+        expectNil(missing.advisor)
+    }
+
+    test("readTranscriptContext: advisorModel (line-level field) becomes the advisor badge") {
+        // Advisor-paired sessions stamp every assistant line with a top-level "advisorModel"
+        // (measured 2026-07-15, `claude -p --advisor opus`). Same field appears in subagent
+        // transcripts (the session setting propagates down).
+        let cwd = "/tmp/proj-ctx"
+        writeTranscript(cwd: cwd, sessionId: "ctx-adv", lines: [
+            #"{"type":"assistant","advisorModel":"claude-opus-4-8","message":{"model":"claude-sonnet-5","usage":{"input_tokens":10000,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}"#,
+        ])
+        let r = readTranscriptContext(cwd: cwd, sessionId: "ctx-adv")
+        expectEq(r.model?.name, "SONNET", "main model is still the message.model")
+        expectEq(r.advisor?.name, "OPUS", "advisorModel resolves through the same model map")
     }
 
     test("readTranscriptContext: sidechain (subagent) usage is ignored") {

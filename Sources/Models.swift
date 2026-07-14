@@ -83,6 +83,9 @@ func permissionModeChip(_ mode: String?) -> (label: String, color: NSColor)? {
 struct AgentRow {
     let sessionId: String   // the Claude session id → resolves the transcript file
     let model: ModelInfo?   // model in use (from the transcript)
+    // Advisor model when the session runs with one (`--advisor` / advisorModel setting; read from
+    // the transcript's line-level advisorModel field). Means "configured", not "consulted".
+    var advisor: ModelInfo? = nil
     let contextPct: Double? // context-window usage 0…1 (from the transcript's last usage)
     var permissionMode: String? = nil  // Claude Code permission mode (hook-recorded: default /
                                        // plan / acceptEdits / bypassPermissions / dontAsk)
@@ -382,7 +385,7 @@ struct SubagentRecord {
 // simply reappears. `git` is the facts of the agent's own cwd (its worktree, when isolated); when
 // they're missing the parent's grouping keys keep the card in the parent's board section.
 func subagentChildRow(parent: AgentRow, rec: SubagentRecord, git g: GitFacts?,
-                      model: ModelInfo? = nil, contextPct: Double? = nil,
+                      model: ModelInfo? = nil, advisor: ModelInfo? = nil, contextPct: Double? = nil,
                       activity: String? = nil, links: [AgentLink] = [],
                       now: Date = Date()) -> AgentRow {
     let cwd = rec.worktreePath ?? parent.cwd
@@ -390,7 +393,7 @@ func subagentChildRow(parent: AgentRow, rec: SubagentRecord, git g: GitFacts?,
     let parentName = ((cwd as NSString).deletingLastPathComponent as NSString).lastPathComponent
     let branch = g?.branch ?? rec.worktreeBranch
     return AgentRow(sessionId: rec.transcriptKey(parent: parent.sessionId),
-                    model: model, contextPct: contextPct,
+                    model: model, advisor: advisor, contextPct: contextPct,
                     status: "working",
                     // Plain name — the "this is a subagent" mark is a sparkles symbol drawn by the
                     // UI (card title / family peek), not baked into the label (2026-07-11).
