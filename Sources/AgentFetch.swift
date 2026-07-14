@@ -232,6 +232,7 @@ func fetchAgents() -> [AgentRow] {
     zellijSendableCache = zellijSendableCache.filter { liveZellij.contains($0.key) }
     contextCache = contextCache.filter { liveSessions.contains($0.key) }
     transcriptLinksCache = transcriptLinksCache.filter { liveSessions.contains($0.key) }
+    teammateIdleCache = teammateIdleCache.filter { liveSessions.contains($0.key) }
     forkKeyCache = forkKeyCache.filter { liveSessions.contains($0.key) }
     blockedStateCache = blockedStateCache.filter { liveSessions.contains($0.key) }
     transcriptErrorCache = transcriptErrorCache.filter { liveSessions.contains($0.key) }

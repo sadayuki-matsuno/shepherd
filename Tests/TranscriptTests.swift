@@ -468,31 +468,72 @@ func runTranscriptTests() {
 
     test("subagentsFromTranscript: agent files give type and state, no hook needed") {
         let cwd = "/tmp/proj-subagents"
-        writeTranscript(cwd: cwd, sessionId: "s", lines: ["{}"])
-        let dir = (claudeProjectsDir as NSString).appendingPathComponent(sanitizeCwd(cwd))
-        let subagents = ((dir as NSString).appendingPathComponent("s") as NSString).appendingPathComponent("subagents")
-        try! FileManager.default.createDirectory(atPath: subagents, withIntermediateDirectories: true)
-        func write(_ name: String, _ body: String) {
-            try! body.write(toFile: (subagents as NSString).appendingPathComponent(name), atomically: true, encoding: .utf8)
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let now = Date()
+        // The lead's transcript carries an idle_notification user record every time a teammate
+        // ends a turn (party-game, 2026-07-14) — the only durable "this teammate is idle" fact.
+        func idleRecord(from: String, at: Date) -> String {
+            let inner = #"{\"type\":\"idle_notification\",\"from\":\"\#(from)\",\"timestamp\":\"\#(iso.string(from: at))\",\"idleReason\":\"available\"}"#
+            return #"{"type":"user","message":{"role":"user","content":"Another Claude session sent a message:\n<teammate-message teammate_id=\"\#(from)\" color=\"blue\">\n\#(inner)\n</teammate-message>\n\nThis came from another Claude session."}}"#
         }
-        // finished = the newest assistant turn ends with a TEXT block. stop_reason is unreliable
-        // across agent kinds (end_turn / stop_sequence / null — measured 2026-07-10), so the last
-        // block type is the signal: a tool_use tail is mid-call, a text tail is done. The meta.json
-        // carries the teammate's identity.
+        writeTranscript(cwd: cwd, sessionId: "subs", lines: [
+            "{}",
+            idleRecord(from: "impl-mind", at: now.addingTimeInterval(-50)),
+            idleRecord(from: "impl-redo", at: now.addingTimeInterval(-300)),
+            idleRecord(from: "impl-cut", at: now.addingTimeInterval(-50)),
+        ])
+        let dir = (claudeProjectsDir as NSString).appendingPathComponent(sanitizeCwd(cwd))
+        let subagents = ((dir as NSString).appendingPathComponent("subs") as NSString).appendingPathComponent("subagents")
+        try! FileManager.default.createDirectory(atPath: subagents, withIntermediateDirectories: true)
+        func write(_ name: String, _ body: String, mtime: Date? = nil) {
+            let path = (subagents as NSString).appendingPathComponent(name)
+            try! body.write(toFile: path, atomically: true, encoding: .utf8)
+            if let mtime {
+                try! FileManager.default.setAttributes([.modificationDate: mtime], ofItemAtPath: path)
+            }
+        }
+        // Plain subagents: finished = the newest assistant turn ends with a TEXT block. stop_reason
+        // is unreliable across agent kinds (end_turn / stop_sequence / null — measured 2026-07-10),
+        // so the last block type is the signal: a tool_use tail is mid-call, a text tail is done.
         write("agent-aaa.meta.json", #"{"agentType":"general-purpose","toolUseId":"toolu_1"}"#)
         write("agent-aaa.jsonl", #"{"type":"assistant","message":{"stop_reason":"end_turn","content":[{"type":"text","text":"できました"}]}}"#)
         write("agent-bbb.meta.json", #"{"agentType":"Explore","name":"lineage-probe","description":"検証用teammate","worktreePath":"/repo/.claude/worktrees/agent-bbb","worktreeBranch":"worktree-agent-bbb","spawnDepth":1,"model":"haiku"}"#)
         write("agent-bbb.jsonl", #"{"type":"assistant","message":{"stop_reason":"tool_use","content":[{"type":"tool_use","name":"Bash","input":{"command":"./test.sh"}}]}}"#)
         write("agent-ccc.meta.json", "{}")   // no agentType, and no jsonl at all
-        // A teammate that wrote its final report and stopped leaves stop_reason null, but its tail is
-        // a text block — it must read finished, not working (party-game, 2026-07-10).
-        write("agent-ddd.meta.json", #"{"agentType":"general-purpose","name":"impl-mind","taskKind":"in_process_teammate"}"#)
-        write("agent-ddd.jsonl", [
+        // Teammates (taskKind in_process_teammate): a text tail is NOT proof of being done — a
+        // narration line ("now I'll write the file") followed by minutes of tool-call generation
+        // looks identical (party-game, 2026-07-14). The lead transcript's idle_notification is the
+        // authority: idle iff the newest notification is fresher than the teammate's jsonl.
+        let teammateTail = [
             #"{"type":"user","message":{"content":[{"type":"tool_result","content":"ok"}]}}"#,
             #"{"type":"assistant","message":{"content":[{"type":"text","text":"実装完了しました"}]}}"#,
-        ].joined(separator: "\n"))
-        let agents = subagentsFromTranscript(cwd: cwd, sessionId: "s")
-        expectEq(agents.count, 4)
+        ].joined(separator: "\n")
+        // ddd: notification (now-50s) is fresher than the jsonl (now-100s) → idle.
+        write("agent-ddd.meta.json", #"{"agentType":"general-purpose","name":"impl-mind","taskKind":"in_process_teammate"}"#)
+        write("agent-ddd.jsonl", teammateTail, mtime: now.addingTimeInterval(-100))
+        // eee: no notification at all → still working (the mid-generation narration case).
+        write("agent-eee.meta.json", #"{"agentType":"general-purpose","name":"impl-quiet","taskKind":"in_process_teammate"}"#)
+        write("agent-eee.jsonl", teammateTail, mtime: now.addingTimeInterval(-100))
+        // fff: notification (now-300s) is OLDER than the jsonl (now-100s) → re-activated, working.
+        write("agent-fff.meta.json", #"{"agentType":"general-purpose","name":"impl-redo","taskKind":"in_process_teammate"}"#)
+        write("agent-fff.jsonl", teammateTail, mtime: now.addingTimeInterval(-100))
+        // ggg: no notification but the jsonl went silent for over 30 min → idle (backstop for a
+        // killed teammate whose notification never made it into the lead transcript).
+        write("agent-ggg.meta.json", #"{"agentType":"general-purpose","name":"impl-gone","taskKind":"in_process_teammate"}"#)
+        write("agent-ggg.jsonl", teammateTail, mtime: now.addingTimeInterval(-7200))
+        // hhh: a tool_use tail but the notification is fresher than the jsonl → the turn was cut
+        // short (interrupt); the notification wins → idle.
+        write("agent-hhh.meta.json", #"{"agentType":"general-purpose","name":"impl-cut","taskKind":"in_process_teammate"}"#)
+        write("agent-hhh.jsonl", #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"sleep 999"}}]}}"#,
+              mtime: now.addingTimeInterval(-100))
+        // iii: a tool_use tail, no notification, 2h of silence → the backstop must fire here too
+        // (a teammate killed MID tool-call is the common kill shape — review 2026-07-14).
+        write("agent-iii.meta.json", #"{"agentType":"general-purpose","name":"impl-dead","taskKind":"in_process_teammate"}"#)
+        write("agent-iii.jsonl", #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"sleep 999"}}]}}"#,
+              mtime: now.addingTimeInterval(-7200))
+        let agents = subagentsFromTranscript(cwd: cwd, sessionId: "subs")
+        expectEq(agents.count, 9)
         expectEq(agents[0].agentId, "aaa", "the id comes from the file name")
         expect(!agents[0].working, "text tail → finished"); expectEq(agents[0].type, "general-purpose")
         expectEq(agents[0].activity, "できました", "finished → its closing words")
@@ -508,9 +549,61 @@ func runTranscriptTests() {
         expectEq(agents[1].worktreePath, "/repo/.claude/worktrees/agent-bbb")
         expect(agents[2].working, "an unreadable agent reads as working — the safe side")
         expectEq(agents[2].type, "agent", "and falls back to a generic type")
-        expect(!agents[3].working, "text tail with a null stop_reason still reads finished")
+        expect(!agents[3].working, "teammate text tail + fresher idle_notification → idle")
         expectEq(agents[3].activity, "実装完了しました")
+        expect(agents[4].working, "teammate text tail but NO idle_notification → still mid-turn")
+        expect(agents[5].working, "teammate jsonl newer than its last idle_notification → re-activated")
+        expect(!agents[6].working, "no notification but 2h silent → idle backstop")
+        expect(!agents[7].working, "tool_use tail but fresher notification → interrupted, idle")
+        expect(!agents[8].working, "tool_use tail, no notification, 2h silent → backstop fires too")
         expectEq(subagentsFromTranscript(cwd: cwd, sessionId: "none").count, 0, "no subagents dir")
+    }
+
+    test("teammateWorking: notification freshness vs jsonl activity") {
+        let now = Date(timeIntervalSince1970: 1_783_970_000)
+        func at(_ s: TimeInterval) -> Date { now.addingTimeInterval(s) }
+        expect(!teammateWorking(idleAt: at(-50), jsonlMtime: at(-100), now: now),
+               "notification fresher than the jsonl → idle")
+        expect(!teammateWorking(idleAt: at(-100), jsonlMtime: at(-99), now: now),
+               "mtime up to 2s past the notification is turn-end flush jitter, not new work")
+        expect(teammateWorking(idleAt: at(-300), jsonlMtime: at(-100), now: now),
+               "jsonl written after the notification → re-activated")
+        expect(teammateWorking(idleAt: nil, jsonlMtime: at(-100), now: now),
+               "no notification yet → mid-turn")
+        expect(!teammateWorking(idleAt: nil, jsonlMtime: at(-1801), now: now),
+               "30 min of silence → idle even without a notification")
+        expect(teammateWorking(idleAt: at(-50), jsonlMtime: nil, now: now),
+               "unreadable jsonl → working, the safe side")
+    }
+
+    test("teammateIdleTimes: incremental scan of the lead transcript") {
+        let cwd = "/tmp/proj-idle-times"
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let t1 = Date(timeIntervalSince1970: 1_783_960_000)
+        let t2 = Date(timeIntervalSince1970: 1_783_961_000)
+        func idleRecord(from: String, at: Date) -> String {
+            #"{"type":"user","message":{"role":"user","content":"<teammate-message teammate_id=\"\#(from)\">\n{\"type\":\"idle_notification\",\"from\":\"\#(from)\",\"timestamp\":\"\#(iso.string(from: at))\",\"idleReason\":\"available\"}\n</teammate-message>"}}"#
+        }
+        writeTranscript(cwd: cwd, sessionId: "idle-1", lines: [
+            idleRecord(from: "worker-a", at: t1),
+            // a line that merely MENTIONS idle_notification must not parse as one
+            #"{"type":"assistant","message":{"content":[{"type":"text","text":"idle_notification について調査"}]}}"#,
+        ])
+        var times = teammateIdleTimes(cwd: cwd, sessionId: "idle-1")
+        expectEq(times["worker-a"], t1)
+        expectNil(times["worker-b"], "no notification yet")
+        // Append: a newer notification for a, a first one for b. The second call reads the delta only.
+        let path = ((claudeProjectsDir as NSString).appendingPathComponent(sanitizeCwd(cwd)) as NSString)
+            .appendingPathComponent("idle-1.jsonl")
+        let fh = FileHandle(forWritingAtPath: path)!
+        fh.seekToEndOfFile()
+        fh.write(("\n" + idleRecord(from: "worker-a", at: t2) + "\n" + idleRecord(from: "worker-b", at: t2)).data(using: .utf8)!)
+        try! fh.close()
+        times = teammateIdleTimes(cwd: cwd, sessionId: "idle-1")
+        expectEq(times["worker-a"], t2, "the newest notification wins")
+        expectEq(times["worker-b"], t2, "appended notifications are picked up")
+        expectEq(teammateIdleTimes(cwd: cwd, sessionId: "gone").count, 0, "no transcript → empty")
     }
 
     test("transcriptTailValue: the newest permission-mode / last-prompt line wins") {

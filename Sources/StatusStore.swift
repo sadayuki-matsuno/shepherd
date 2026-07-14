@@ -34,6 +34,11 @@ var contextCache: [String: (model: ModelInfo?, pct: Double?, at: Date)] = [:]
 // Guarded by factsLock.
 var transcriptLinksCache: [String: (links: [AgentLink], offset: UInt64)] = [:]
 
+// key: session id (the lead's). Per-teammate latest idle_notification timestamps parsed from the
+// lead transcript, plus the byte offset already scanned (incremental, like transcriptLinksCache).
+// Guarded by factsLock.
+var teammateIdleCache: [String: (idleAt: [String: Date], offset: UInt64)] = [:]
+
 // key: session id. Claude Code's AI-generated session title (the zellij pane title) read from
 // the transcript tail; refreshed at most every ~20s. nil is cached as a value (sessions from
 // before the ai-title transcript line existed) so they aren't rescanned every poll. Guarded by
