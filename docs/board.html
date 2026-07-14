@@ -188,7 +188,7 @@
         <tr><td>◥ (amber dog-ear)</td><td>Top-right fold = the worktree has uncommitted changes. Fine while working; a reminder before closing.</td></tr>
         <tr><td>◔ 72%</td><td>Context-window usage — yellow ≥ 60%, red ≥ 85%. Hover for tokens remaining.</td></tr>
         <tr><td>stale?</td><td>Says “working” but the transcript hasn't moved in 2+ minutes — probably interrupted (Esc) and actually stopped. Attach and check.</td></tr>
-        <tr><td>&lt;/&gt; code brackets</td><td>The session lives in a VS Code-family integrated terminal or the Claude Code extension panel — clicking the card opens that editor instead of a terminal. (Built to cover Cursor/Windsurf-style forks too, though those are untested.)</td></tr>
+        <tr><td>&lt;/&gt; code brackets</td><td>The session lives in a VS Code-family integrated terminal or the Claude Code extension panel — clicking the card opens that editor instead of a terminal. (Built to cover Cursor/Windsurf-style forks too, though those are untested.) One caveat for extension-panel sessions: their status is read from the transcript at turn boundaries, so a permission prompt in Manual mode keeps showing as “working” rather than “needs input”.</td></tr>
         <tr><td>📡 antenna</td><td>Remote-control (<code>/remote-control</code>) is enabled for this pane.</td></tr>
         <tr><td>📎 sent</td><td>A dropped file was just sent to this session.</td></tr>
         <tr><td>✨ child working</td><td>A subagent or child session of this card is running (the child's own card carries the same mark).</td></tr>
@@ -207,7 +207,7 @@
         <tr><td>◥（琥珀の折り目）</td><td>右上の折り目は worktree に未コミットの変更があることを示します。作業中は問題ありません。閉じる前の確認用です。</td></tr>
         <tr><td>◔ 72%</td><td>コンテキストウィンドウの使用率 — 60%以上で yellow、85%以上で red。ホバーで残りトークン数を確認できます。</td></tr>
         <tr><td>stale?</td><td>「作業中」と表示されていても transcript が2分以上動いていない状態 — おそらく中断（Esc）されて実際は停止しています。attach して確認してください。</td></tr>
-        <tr><td>&lt;/&gt; コードブラケット</td><td>VS Code 系の統合ターミナルまたは Claude Code 拡張パネルで動くセッション — カードのクリックはターミナルではなくそのエディタを開きます。（Cursor / Windsurf 系フォークにも対応する設計ですが、フォークでの動作は未検証です。）</td></tr>
+        <tr><td>&lt;/&gt; コードブラケット</td><td>VS Code 系の統合ターミナルまたは Claude Code 拡張パネルで動くセッション — カードのクリックはターミナルではなくそのエディタを開きます。（Cursor / Windsurf 系フォークにも対応する設計ですが、フォークでの動作は未検証です。）拡張パネルのセッションだけは注意: 状態を transcript のターン境界から読み取るため、Manual モードの権限プロンプト待ちは「応答待ち」にならず「作業中」のまま表示されます。</td></tr>
         <tr><td>📡 アンテナ</td><td>このペインで遠隔操作（<code>/remote-control</code>）が有効になっています。</td></tr>
         <tr><td>📎 送信済み</td><td>ドロップしたファイルがこのセッションに送信されたことを示します。</td></tr>
         <tr><td>✨ 子が作業中</td><td>このカードのサブエージェントまたは子セッションが実行中です（子カード自体にも同じマークが付きます）。</td></tr>
