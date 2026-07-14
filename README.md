@@ -29,6 +29,7 @@ Shepherd sits in the corner of your screen and shows every Claude Code session o
 - **Click to open** — attaches the session's zellij tab and focuses its pane, raises the VS Code window a session's integrated terminal or Claude Code extension panel lives in (built to cover Cursor/Windsurf-style forks too, though those are untested), or opens a background worker's live TUI with `claude attach` in a new terminal window
 - **Right-click menu** — per-card actions: reply (answer a blocked agent inline — over zellij, or over the cc-daemon control socket for a background worker; a VS Code terminal accepts no outside keystrokes, so click the card and answer in the editor instead), remote-control, capture a screen region and send it to that agent, and close (`claude stop` for a background agent, SIGTERM for an interactive one; guarded so a dirty working tree never loses uncommitted work)
 - **Drop files onto a row** — copies them to a scratch dir and sends the paths (plus an optional message) to that agent
+- **Update badge** — once a day Shepherd compares itself against the latest GitHub release; when a newer one exists, an "update vX.Y.Z" chip appears in the header. Click it to open the release page, then update with `brew upgrade --cask shepherd`
 - **Zero deps** — plain Swift built with the Xcode Command Line Tools; no Xcode project, no packages
 
 <p align="center">

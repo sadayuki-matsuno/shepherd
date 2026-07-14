@@ -254,6 +254,31 @@ extension AppDelegate {
             }
         }
         maybeRefreshUsage()
+        maybeCheckForUpdate()
+    }
+
+    // Compare the bundle version against the latest GitHub release at most once a day, on its own
+    // background hop. Additive: any failure just means no badge until the next attempt.
+    func maybeCheckForUpdate() {
+        guard !updateChecking, Date().timeIntervalSince(updateCheckedAt) > 24 * 3600,
+              let current = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        else { return }
+        updateChecking = true
+        DispatchQueue.global(qos: .utility).async {
+            let latest = fetchLatestRelease()
+            DispatchQueue.main.async {
+                self.updateChecking = false
+                self.updateCheckedAt = Date()
+                let update = latest.flatMap { isUpdateAvailable(latest: $0.tag, current: current) ? $0 : nil }
+                let changed = update?.tag != self.availableUpdate?.tag
+                self.availableUpdate = update
+                if changed, self.replyPopover == nil, self.repoPickerPopover == nil,
+                   self.dropPopover == nil, self.helpPopover == nil,
+                   Date().timeIntervalSince(self.lastDragAt) > 1.0 {
+                    self.rebuild(rows: self.lastRows)
+                }
+            }
+        }
     }
 
     // Fetch plan-usage at most once a minute, on its own background hop so a slow HTTP call never
