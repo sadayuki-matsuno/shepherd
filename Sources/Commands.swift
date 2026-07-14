@@ -303,17 +303,35 @@ func parseAccount(_ json: [String: Any]) -> AccountInfo? {
     return AccountInfo(email: email, plan: plan)
 }
 
-// The logged-in account, cached 5 min (the login rarely changes and this is a subprocess). Returns
-// the cached value — including a cached nil — until it ages out.
+// Fires (on a background queue) when a revalidated account differs from the cached one.
+// Set once at launch; the AppDelegate repaints through the normal debounced path.
+var onAccountChanged: (() -> Void)?
+
+// The logged-in account, cached 5 min (the login rarely changes and this is a subprocess).
+// Stale-while-revalidate, like prInfo: ALWAYS returns the cached value immediately and refreshes
+// an expired one on a background queue. It must never run the subprocess inline — headerView calls
+// this from rebuild() right after every subview was torn down, and the ~0.3s the CLI takes let the
+// empty panel reach the screen: the HUD visibly blanked and repopulated every 5 minutes
+// (2026-07-14, caught by frame capture).
 func claudeAccount() -> AccountInfo? {
     factsLock.lock()
     let cached = accountCache
+    let stale = cached == nil || Date().timeIntervalSince(cached!.at) >= 300
+    // claudeBin gate inside the flag decision — otherwise a nil CLI would latch
+    // accountFetching true forever and block all future revalidation.
+    let startFetch = stale && !accountFetching && claudeBin != nil
+    if startFetch { accountFetching = true }
     factsLock.unlock()
-    if let c = cached, Date().timeIntervalSince(c.at) < 300 { return c.account }
-    guard let claudeBin = claudeBin else { return nil }
-    let account = runJSON([claudeBin, "auth", "status", "--json"]).flatMap(parseAccount)
-    factsLock.lock()
-    accountCache = (account, Date())
-    factsLock.unlock()
-    return account
+    if startFetch, let claudeBin = claudeBin {
+        DispatchQueue.global(qos: .utility).async {
+            let account = runJSON([claudeBin, "auth", "status", "--json"]).flatMap(parseAccount)
+            factsLock.lock()
+            let changed = accountCache?.account != account
+            accountCache = (account, Date())
+            accountFetching = false
+            factsLock.unlock()
+            if changed { onAccountChanged?() }
+        }
+    }
+    return cached?.account
 }

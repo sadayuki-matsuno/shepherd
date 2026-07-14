@@ -145,6 +145,10 @@ extension AppDelegate {
         onPRFactsChanged = { [weak self] in
             DispatchQueue.main.async { self?.scheduleDebouncedRefresh() }
         }
+        // Same deal for the account chip (claudeAccount is stale-while-revalidate too).
+        onAccountChanged = { [weak self] in
+            DispatchQueue.main.async { self?.scheduleDebouncedRefresh() }
+        }
         timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             self?.refresh()
         }
