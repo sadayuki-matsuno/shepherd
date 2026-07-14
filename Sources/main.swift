@@ -56,6 +56,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NST
     var deletingSessions: Set<String> = []
 
 
+    // Update check (2026-07-14): once a day, the bundle version is compared against the latest
+    // GitHub release; when newer, the brand bar wears an "update vX.Y.Z" badge that opens the
+    // release page (updating itself stays a user action — brew upgrade). See maybeCheckForUpdate().
+    var availableUpdate: LatestRelease?
+    var updateCheckedAt = Date.distantPast
+    var updateChecking = false
+
     // Plan-usage dashboard (top of the HUD). On by default; refreshed at most every 60s (the
     // endpoint is rate limited, and the windows move slowly). See fetchClaudeUsage().
     var showUsageDashboard = defaults.object(forKey: "showUsageDashboard") == nil ? true : defaults.bool(forKey: "showUsageDashboard")

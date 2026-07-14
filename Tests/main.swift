@@ -8,6 +8,7 @@ runStatusStoreTests()
 runGitHubFactsTests()
 runCommandsTests()
 runClaudeUsageTests()
+runUpdateCheckTests()
 
 try? FileManager.default.removeItem(atPath: testTmpDir)
 

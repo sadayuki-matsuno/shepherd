@@ -42,6 +42,19 @@ extension AppDelegate {
             topBar.addArrangedSubview(chip)
         }
 
+        // A newer GitHub release exists: a badge on the brand bar, so it survives minimizing.
+        // Click opens the release page — updating stays a user action (brew upgrade); Shepherd
+        // only points at it.
+        if let up = availableUpdate {
+            let chip = badge(L("更新 \(up.tag)", "update \(up.tag)"), symbol: "arrow.up.circle.fill",
+                             fg: Cat.teal, bg: Cat.teal.withAlphaComponent(0.16),
+                             tip: L("新しいバージョンがあります — クリックでリリースページを開く",
+                                    "a newer release is available — click to open its release page")) {
+                if let url = URL(string: up.url) { NSWorkspace.shared.open(url) }
+            }
+            topBar.addArrangedSubview(chip)
+        }
+
         let brandSpacer = NSView()
         topBar.addArrangedSubview(brandSpacer)
 
