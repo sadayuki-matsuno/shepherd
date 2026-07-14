@@ -241,11 +241,30 @@ extension AppDelegate {
         let repo = NSMenuItem(title: L("GitHub リポジトリを開く", "Open the GitHub repo"), action: #selector(openShepherdRepo), keyEquivalent: "")
         repo.target = self
         menu.addItem(repo)
+        // The running version, so "which build am I on?" never needs a trip to the repo. When a
+        // newer release exists the line becomes clickable and opens its release page (the same
+        // place the header badge points).
+        if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
+            if let up = availableUpdate {
+                let item = NSMenuItem(title: L("Shepherd v\(version)（更新 \(up.tag) あり）", "Shepherd v\(version) (update \(up.tag) available)"),
+                                      action: #selector(openReleasePage), keyEquivalent: "")
+                item.target = self
+                menu.addItem(item)
+            } else {
+                let item = NSMenuItem(title: "Shepherd v\(version)", action: nil, keyEquivalent: "")
+                item.isEnabled = false
+                menu.addItem(item)
+            }
+        }
         menu.addItem(.separator())
         let quit = NSMenuItem(title: L("Shepherd を終了", "Quit Shepherd"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
         quit.target = NSApp
         menu.addItem(quit)
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 4), in: sender)
+    }
+
+    @objc func openReleasePage() {
+        if let url = URL(string: availableUpdate?.url ?? shepherdReleasesURL) { NSWorkspace.shared.open(url) }
     }
 
     // ＋: a small search picker over base ghq repos (linked worktrees excluded); picking one
