@@ -195,6 +195,18 @@ extension AppDelegate {
         let menu = NSMenu()
         menu.autoenablesItems = false
 
+        // The running version leads the menu in its own section (2026-07-14 user preference).
+        // Always clickable: GitHub's releases page normally, the newer release's page when the
+        // update check found one (then the line also says so, like the header badge).
+        if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
+            let title = availableUpdate.map { L("Shepherd v\(version)（更新 \($0.tag) あり）↗", "Shepherd v\(version) (update \($0.tag) available) ↗") }
+                ?? "Shepherd v\(version) ↗"
+            let ver = NSMenuItem(title: title, action: #selector(openReleasePage), keyEquivalent: "")
+            ver.target = self
+            menu.addItem(ver)
+            menu.addItem(.separator())
+        }
+
         let usageItem = NSMenuItem(title: L("プラン使用量を表示", "Show plan usage"), action: #selector(toggleUsageDashboard), keyEquivalent: "")
         usageItem.target = self
         usageItem.state = showUsageDashboard ? .on : .off
@@ -241,21 +253,6 @@ extension AppDelegate {
         let repo = NSMenuItem(title: L("GitHub リポジトリを開く", "Open the GitHub repo"), action: #selector(openShepherdRepo), keyEquivalent: "")
         repo.target = self
         menu.addItem(repo)
-        // The running version, so "which build am I on?" never needs a trip to the repo. When a
-        // newer release exists the line becomes clickable and opens its release page (the same
-        // place the header badge points).
-        if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
-            if let up = availableUpdate {
-                let item = NSMenuItem(title: L("Shepherd v\(version)（更新 \(up.tag) あり）", "Shepherd v\(version) (update \(up.tag) available)"),
-                                      action: #selector(openReleasePage), keyEquivalent: "")
-                item.target = self
-                menu.addItem(item)
-            } else {
-                let item = NSMenuItem(title: "Shepherd v\(version)", action: nil, keyEquivalent: "")
-                item.isEnabled = false
-                menu.addItem(item)
-            }
-        }
         menu.addItem(.separator())
         let quit = NSMenuItem(title: L("Shepherd を終了", "Quit Shepherd"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
         quit.target = NSApp
