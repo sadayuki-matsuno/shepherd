@@ -1,8 +1,9 @@
 import Foundation
 
 func runTranscriptTests() {
-    // Point transcript reads at this run's scratch directory.
+    // Point transcript and teams reads at this run's scratch directory.
     claudeProjectsDir = testTmpDir + "/projects"
+    claudeTeamsDir = testTmpDir + "/teams"
 
     test("sanitizeCwd") {
         expectEq(sanitizeCwd("/Users/x/.ghq/github.com/o/r"), "-Users-x--ghq-github-com-o-r")
@@ -475,6 +476,13 @@ func runTranscriptTests() {
             idleRecord(from: "impl-redo", at: now.addingTimeInterval(-300)),
             idleRecord(from: "impl-cut", at: now.addingTimeInterval(-50)),
         ])
+        // The team roster: every live teammate is a member; impl-shut was shut down (shutdown
+        // removes the member — measured 2026-07-14).
+        let teamDir = (claudeTeamsDir as NSString).appendingPathComponent("session-subs")
+        try! FileManager.default.createDirectory(atPath: teamDir, withIntermediateDirectories: true)
+        try! #"{"leadSessionId":"subs","members":[{"name":"team-lead","agentType":"team-lead"},{"name":"impl-mind"},{"name":"impl-quiet"},{"name":"impl-redo"},{"name":"impl-gone"},{"name":"impl-cut"},{"name":"impl-dead"}]}"#
+            .write(toFile: (teamDir as NSString).appendingPathComponent("config.json"),
+                   atomically: true, encoding: .utf8)
         let dir = (claudeProjectsDir as NSString).appendingPathComponent(sanitizeCwd(cwd))
         let subagents = ((dir as NSString).appendingPathComponent("subs") as NSString).appendingPathComponent("subagents")
         try! FileManager.default.createDirectory(atPath: subagents, withIntermediateDirectories: true)
@@ -524,8 +532,14 @@ func runTranscriptTests() {
         write("agent-iii.meta.json", #"{"agentType":"general-purpose","name":"impl-dead","taskKind":"in_process_teammate"}"#)
         write("agent-iii.jsonl", #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"sleep 999"}}]}}"#,
               mtime: now.addingTimeInterval(-7200))
+        // kkk: gone from the roster → not working, no matter how fresh its jsonl reads. A shutdown's
+        // approval turn writes records AFTER the last idle_notification, so without the roster kill
+        // a shut-down teammate would stick working for 30 min (probe, 2026-07-14).
+        write("agent-kkk.meta.json", #"{"agentType":"general-purpose","name":"impl-shut","taskKind":"in_process_teammate"}"#)
+        write("agent-kkk.jsonl", #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"echo bye"}}]}}"#,
+              mtime: now.addingTimeInterval(-10))
         let agents = subagentsFromTranscript(cwd: cwd, sessionId: "subs")
-        expectEq(agents.count, 9)
+        expectEq(agents.count, 10)
         expectEq(agents[0].agentId, "aaa", "the id comes from the file name")
         expect(!agents[0].working, "text tail → finished"); expectEq(agents[0].type, "general-purpose")
         expectEq(agents[0].activity, "できました", "finished → its closing words")
@@ -543,11 +557,15 @@ func runTranscriptTests() {
         expectEq(agents[2].type, "agent", "and falls back to a generic type")
         expect(!agents[3].working, "teammate text tail + fresher idle_notification → idle")
         expectEq(agents[3].activity, "実装完了しました")
+        expect(agents[3].onRoster, "idle but still a team member → revivable, shown as 待機")
+        expect(!agents[0].onRoster, "a plain subagent is never on a roster")
         expect(agents[4].working, "teammate text tail but NO idle_notification → still mid-turn")
         expect(agents[5].working, "teammate jsonl newer than its last idle_notification → re-activated")
         expect(!agents[6].working, "no notification but 2h silent → idle backstop")
         expect(!agents[7].working, "tool_use tail but fresher notification → interrupted, idle")
         expect(!agents[8].working, "tool_use tail, no notification, 2h silent → backstop fires too")
+        expect(!agents[9].working, "off the roster → shut down, never working")
+        expect(!agents[9].onRoster, "and not offered as an idle teammate either")
         expectEq(subagentsFromTranscript(cwd: cwd, sessionId: "none").count, 0, "no subagents dir")
     }
 

@@ -51,9 +51,12 @@ extension AppDelegate {
     }
 
     // Family peek popover (C7): hovering a collapsed family's summary previews its children.
-    func showFamilyPeek(children: [AgentRow], from anchor: NSView) {
+    // `idle` are roster teammates at rest (2026-07-14) — no card, so this is where they show:
+    // dimmed, with their closing words, marked with a moon.
+    func showFamilyPeek(children: [AgentRow], idle: [SubagentRecord] = [], from anchor: NSView) {
         familyPeekCloseWork?.cancel()
         if familyPeekPopover != nil { return }
+        guard !children.isEmpty || !idle.isEmpty else { return }
         let box = NSStackView(); box.orientation = .vertical; box.alignment = .leading; box.spacing = 5
         box.edgeInsets = NSEdgeInsets(top: 8, left: 10, bottom: 8, right: 10)
         for c in children {
@@ -70,6 +73,17 @@ extension AppDelegate {
             let sub = c.lastMessage ?? c.activity
             if let s = sub, !s.isEmpty {
                 let l = makeLabel(String(s.prefix(60)), size: 10.5, color: Cat.subtext)
+                l.lineBreakMode = .byTruncatingTail
+                box.addArrangedSubview(l)
+            }
+        }
+        for m in idle {
+            let name = symbolLabel("moon.zzz", m.name ?? m.description ?? m.type,
+                                   size: 11.5, weight: .semibold, color: Cat.subtext, symbolColor: Cat.overlay)
+            name.lineBreakMode = .byTruncatingTail
+            box.addArrangedSubview(name)
+            if let a = m.activity, !a.isEmpty {
+                let l = makeLabel(String(a.prefix(60)), size: 10.5, color: Cat.overlay)
                 l.lineBreakMode = .byTruncatingTail
                 box.addArrangedSubview(l)
             }
