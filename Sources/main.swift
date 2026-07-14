@@ -182,6 +182,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NST
     var expandedRecordLanes: Set<String> = Set(defaults.stringArray(forKey: "expandedRecordLanes") ?? [])
     var familyPeekPopover: NSPopover?
     var familyPeekCloseWork: DispatchWorkItem?
+    // Hover tooltip popover (2026-07-15): anchored at the hovered control — the bottom hint line
+    // proved invisible in practice for per-element details (glyph hover). Transient; closed on
+    // hover-exit and defensively at every rebuild.
+    var hoverTipPopover: NSPopover?
     let repoPanelPad: CGFloat = 7
     // ？ヘルプ（アイコン・UI凡例）ポップオーバー。表示中は rebuild をスキップ（他のポップオーバーと同じ扱い）。
     var helpPopover: NSPopover?

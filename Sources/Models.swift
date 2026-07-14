@@ -64,6 +64,31 @@ func modelInfo(from raw: String) -> ModelInfo? {
     return nil
 }
 
+// Capability rank for the tier-bar instrument (M1, 2026-07-15): 1=haiku … 4=fable.
+// 0 = unknown display name → the card falls back to the plain text chip.
+func modelTier(_ name: String) -> Int {
+    switch name {
+    case "HAIKU":  return 1
+    case "SONNET": return 2
+    case "OPUS":   return 3
+    case "FABLE":  return 4
+    default:       return 0
+    }
+}
+
+// Lock glyph for a permission mode (P1, 2026-07-15): how far the guard is off.
+// nil/"default" shows nothing (unremarkable case); unknown future modes return nil here and
+// keep the text-chip fallback so they stay visible.
+func lockGlyph(for mode: String?) -> LockGlyph? {
+    switch mode {
+    case "plan":               return .closed
+    case "acceptEdits":        return .unlatched
+    case "dontAsk":            return .unlatched
+    case "bypassPermissions":  return .open
+    default:                   return nil
+    }
+}
+
 // Permission-mode chip (2026-07-08): how Claude Code is being run, from the hook's
 // permission_mode. "default" (ask every time) is the unremarkable case and shows nothing;
 // unknown future modes fall through as-is so they're at least visible.
@@ -657,6 +682,27 @@ func terminalDisplayName(_ termProgram: String?) -> String? {
 // falls through instead: its home is the editor, which the backend switch already names. nil when
 // there is nothing to say: a background worker (the BG chip already covers it, and its env is the
 // daemon's anyway) or a subagent (it runs inside its parent's process).
+// Card label for the collapsed artifact badge (2026-07-15): a sole artifact opens directly
+// (keeps the ↗); two or more become "newest-title（他+N）" and the click opens a picker.
+func artifactBadgeText(title: String?, favicon: String?, count: Int) -> String {
+    let t = title.map { String($0.prefix(14)) } ?? "Artifact"
+    let base = favicon.map { "\($0) \(t)" } ?? t
+    guard count >= 2 else { return base + " ↗" }
+    return base + L("（他+\(count - 1)）", " (+\(count - 1))")
+}
+
+// SF Symbol for the title row's leading where-it-runs glyph (2026-07-15). Editor/terminal
+// silhouettes are the one instrument that works icon-only — recognizable without a word; the
+// name and details ride the hover hint. nil runtime (bg worker / subagent) shows nothing.
+func runtimeGlyph(backend: Backend, runtime: String?) -> String? {
+    guard runtime != nil else { return nil }
+    switch backend {
+    case .vscode: return "chevron.left.forwardslash.chevron.right"
+    case .zellij: return "square.split.2x1"
+    case .other:  return runtime == "claude -p" ? "terminal" : "apple.terminal"
+    }
+}
+
 func runtimeLabel(backend: Backend, termProgram: String?, editorBundleId: String?,
                   entrypoint: String?, isBackground: Bool, isSubagent: Bool) -> String? {
     if isBackground || isSubagent { return nil }

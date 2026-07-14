@@ -135,9 +135,15 @@ S = [
          model="claude-fable-5", usage=(1500, 300000, 8500), mode="bypassPermissions",
          title=T("調査: 通知メールが二重送信されるバグ", "Investigate duplicate notification emails"),
          prompt=T("通知メールが二重に届くことがある。原因を調査して", "Notification emails sometimes arrive twice — find out why"),
-         artifact=dict(favicon="📮",
-                       desc=T("二重送信バグの原因調査レポート", "Duplicate-send root-cause report"),
-                       url="https://claude.ai/code/artifact/aaaa1111-2222-3333-4444-555566667777"),
+         artifacts=[dict(favicon="🗺",
+                         desc=T("配送経路の見取り図", "Delivery-path map"),
+                         url="https://claude.ai/code/artifact/cccc1111-2222-3333-4444-555566667777"),
+                    dict(favicon="🧪",
+                         desc=T("再現手順ノート", "Repro-steps note"),
+                         url="https://claude.ai/code/artifact/bbbb1111-2222-3333-4444-555566667777"),
+                    dict(favicon="📮",
+                         desc=T("二重送信バグの原因調査レポート", "Duplicate-send root-cause report"),
+                         url="https://claude.ai/code/artifact/aaaa1111-2222-3333-4444-555566667777")],
          subagent=dict(name=T("送信キュー呼び出し箇所の走査", "scan send-queue call sites"))),
     # working: SONNET, young session, PR #101 with CI still running
     dict(sid=str(uuid.uuid4()), cwd=f"{src}/lobby", status="busy",
@@ -172,15 +178,14 @@ for i, s in enumerate(S):
         {"type": "permission-mode", "permissionMode": s["mode"]},
         {"type": "ai-title", "aiTitle": s["title"]},
     ]
-    if "artifact" in s:
-        a = s["artifact"]
+    for ai, a in enumerate(s.get("artifacts", [])):
         lines += [
             dict(type="assistant", message=dict(role="assistant", content=[
-                dict(type="tool_use", name="Artifact", id="toolu_art1",
-                     input=dict(file_path="report.html", favicon=a["favicon"], description=a["desc"]))])),
+                dict(type="tool_use", name="Artifact", id=f"toolu_art{ai}",
+                     input=dict(file_path=f"report{ai}.html", favicon=a["favicon"], description=a["desc"]))])),
             dict(type="user", message=dict(role="user", content=[
-                dict(type="tool_result", tool_use_id="toolu_art1",
-                     content=f"Published report.html at {a['url']}")])),
+                dict(type="tool_result", tool_use_id=f"toolu_art{ai}",
+                     content=f"Published report{ai}.html at {a['url']}")])),
         ]
     if "question" in s:
         # The card's one-line "? …" preview reads the latest assistant TEXT, so say the question

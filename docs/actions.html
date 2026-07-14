@@ -134,6 +134,7 @@
         <tr><td>Reply</td><td>Answer a blocked agent inline (first item whenever the card is waiting).</td></tr>
         <tr><td>Attach zellij ↗ / Open in VS Code ↗ / Attach ↗</td><td>Same as clicking the card.</td></tr>
         <tr><td>Copy `claude attach &lt;id&gt;`</td><td>For opening a background worker in a terminal of your choosing.</td></tr>
+        <tr><td>✓ / ✗ / ● Open PR #N ↗</td><td>Opens the session's pull request; the mark is the CI outcome (pass / fail / running). The PR moved here from the card face in 2026-07.</td></tr>
         <tr><td>Remote-control</td><td>Enables <code>/remote-control</code> for the session so you can drive it from another device.</td></tr>
         <tr><td>Capture a region &amp; send</td><td>Select a screen region; the screenshot lands in the session as a file. The HUD hides itself during capture.</td></tr>
         <tr><td>Stop background agent</td><td><code>claude stop</code> via the daemon — frees the ~600 MB a parked worker holds. Verified: the card only clears once the worker is actually gone.</td></tr>
@@ -148,6 +149,7 @@
         <tr><td>回答する</td><td>応答待ちのエージェントにインラインで回答します（カードが待機中のときは常に先頭に表示）。</td></tr>
         <tr><td>zellij を開く ↗ / VS Code で開く ↗ / attach で開く ↗</td><td>カードをクリックしたときと同じ動作です。</td></tr>
         <tr><td>claude attach &lt;id&gt; をコピー</td><td>好きなターミナルでバックグラウンドワーカーを開くために使います。</td></tr>
+        <tr><td>✓ / ✗ / ● PR #N を開く ↗</td><td>セッションの PR を開きます。記号は CI の結果（成功 / 失敗 / 実行中）。PR 表示は 2026-07 にカード面からここへ移動しました。</td></tr>
         <tr><td>遠隔操作（/remote-control）</td><td>そのセッションで <code>/remote-control</code> を有効にし、別のデバイスから操作できるようにします。</td></tr>
         <tr><td>範囲を撮影して送る</td><td>画面の範囲を選択すると、そのスクリーンショットがファイルとしてセッションに届きます。撮影中は HUD 自身を隠します。</td></tr>
         <tr><td>バックグラウンドを停止（claude stop）</td><td>daemon 経由で <code>claude stop</code> を実行します — 待機中のワーカーが確保している約600MBを解放します。ワーカーが実際に消えたことを確認してからカードを消します。</td></tr>
