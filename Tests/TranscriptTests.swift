@@ -547,8 +547,22 @@ func runTranscriptTests() {
         write("agent-iii.meta.json", #"{"agentType":"general-purpose","name":"impl-dead","taskKind":"in_process_teammate"}"#)
         write("agent-iii.jsonl", #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"sleep 999"}}]}}"#,
               mtime: now.addingTimeInterval(-7200))
+        // jjj: a plain subagent whose FINAL record is bigger than 16KB (an Explore closing report —
+        // genome 2026-07-16 measured 17–25KB). A tail window smaller than the record starts
+        // mid-JSON, parses nothing, and stuck 4 finished agents "working" for 4.5h.
+        let bigReport = #"# 調査報告\n"# + String(repeating: "x", count: 20_000)   // \n stays JSON-escaped
+        write("agent-jjj.meta.json", #"{"agentType":"Explore","description":"個口表調査"}"#)
+        write("agent-jjj.jsonl", [
+            #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"grep x"}}]}}"#,
+            #"{"type":"assistant","message":{"stop_reason":"end_turn","content":[{"type":"text","text":"\#(bigReport)"}]}}"#,
+        ].joined(separator: "\n"))
+        // kkk: a plain subagent killed mid tool-call — tool_use tail, 2h of jsonl silence. The
+        // 30-min backstop must fire for plain subagents too, not only teammates.
+        write("agent-kkk.meta.json", #"{"agentType":"general-purpose","description":"killed probe"}"#)
+        write("agent-kkk.jsonl", #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"sleep 999"}}]}}"#,
+              mtime: now.addingTimeInterval(-7200))
         let agents = subagentsFromTranscript(cwd: cwd, sessionId: "subs")
-        expectEq(agents.count, 9)
+        expectEq(agents.count, 11)
         expectEq(agents[0].agentId, "aaa", "the id comes from the file name")
         expect(!agents[0].working, "text tail → finished"); expectEq(agents[0].type, "general-purpose")
         expectEq(agents[0].activity, "できました", "finished → its closing words")
@@ -571,6 +585,9 @@ func runTranscriptTests() {
         expect(!agents[6].working, "no notification but 2h silent → idle backstop")
         expect(!agents[7].working, "tool_use tail but fresher notification → interrupted, idle")
         expect(!agents[8].working, "tool_use tail, no notification, 2h silent → backstop fires too")
+        expect(!agents[9].working, "a final record bigger than 16KB still reads as finished")
+        expectEq(agents[9].activity, "# 調査報告", "and its closing words still surface")
+        expect(!agents[10].working, "plain subagent: tool_use tail + 2h silence → idle backstop")
         expectEq(subagentsFromTranscript(cwd: cwd, sessionId: "none").count, 0, "no subagents dir")
     }
 
