@@ -1,11 +1,25 @@
+import Foundation
+#if canImport(AppKit)
 import AppKit
+// The logic layer stores colours as data; only the AppKit UI draws them. On macOS HUDColor
+// IS NSColor so the UI keeps consuming these fields untouched.
+typealias HUDColor = NSColor
+#else
+// Linux port: NSColor stand-in with just the shape the logic layer needs.
+struct HUDColor: Equatable {
+    let red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat
+    init(srgbRed: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat) {
+        red = srgbRed; self.green = green; self.blue = blue; self.alpha = alpha
+    }
+}
+#endif
 
 // MARK: - Catppuccin Mocha palette
 
-func rgb(_ hex: UInt32) -> NSColor {
-    NSColor(srgbRed: CGFloat((hex >> 16) & 0xff) / 255,
-            green: CGFloat((hex >> 8) & 0xff) / 255,
-            blue: CGFloat(hex & 0xff) / 255, alpha: 1)
+func rgb(_ hex: UInt32) -> HUDColor {
+    HUDColor(srgbRed: CGFloat((hex >> 16) & 0xff) / 255,
+             green: CGFloat((hex >> 8) & 0xff) / 255,
+             blue: CGFloat(hex & 0xff) / 255, alpha: 1)
 }
 
 enum Cat {
@@ -33,7 +47,7 @@ enum Cat {
 // (contextWindow matches on the raw id, e.g. "opus-4-8" — the display name alone can't).
 struct ModelInfo {
     let name: String
-    let color: NSColor
+    let color: HUDColor
     var raw: String = ""
 }
 
@@ -76,6 +90,12 @@ func modelTier(_ name: String) -> Int {
     }
 }
 
+// Permission-mode classifier (the drawn lock glyph itself is gone, 2026-07-15 evening —
+// the mode now tints the title row's where-it-runs glyph; this enum remains as the
+// "known mode" predicate behind lockGlyph(for:)). Lives here (not Components) so the
+// Linux build, which excludes the AppKit UI, still gets it.
+enum LockGlyph { case closed, unlatched, open }
+
 // Lock glyph for a permission mode (P1, 2026-07-15): how far the guard is off.
 // nil/"default" shows nothing (unremarkable case); unknown future modes return nil here and
 // keep the text-chip fallback so they stay visible.
@@ -92,7 +112,7 @@ func lockGlyph(for mode: String?) -> LockGlyph? {
 // Permission-mode chip (2026-07-08): how Claude Code is being run, from the hook's
 // permission_mode. "default" (ask every time) is the unremarkable case and shows nothing;
 // unknown future modes fall through as-is so they're at least visible.
-func permissionModeChip(_ mode: String?) -> (label: String, color: NSColor)? {
+func permissionModeChip(_ mode: String?) -> (label: String, color: HUDColor)? {
     switch mode {
     case nil, "default":       return nil
     case "plan":               return ("PLAN", Cat.lavender)
@@ -548,7 +568,7 @@ func removableRecord(_ row: AgentRow) -> String? {
 // says so: a plain 🅿 chip while freshly parked, escalating to the parked duration plus a stop nudge
 // once it has sat ≥30min. A working background agent is busy, not parked; a pid-less background row
 // is a finished record with nothing running to point at.
-func parkedChip(_ row: AgentRow, now: Date = Date()) -> (label: String, color: NSColor)? {
+func parkedChip(_ row: AgentRow, now: Date = Date()) -> (label: String, color: HUDColor)? {
     guard row.isBackground, row.pid != nil, row.status == "idle" else { return nil }
     let parked = now.timeIntervalSince(row.statusSince)
     // Text only — the chip's leading parkingsign symbol is added by the UI (tinyChip(symbol:)).
@@ -805,9 +825,13 @@ enum DeckKey: Equatable {
     case blank
 }
 
+// 15 keys on both supported decks (MK.2 / Original V2). Lives here, not on the IOKit driver
+// class, so the Linux build (which excludes StreamDeck.swift) keeps the layout logic.
+let deckKeyCount = 15
+
 // The board a page shows: always exactly `keyCount` entries. Overflowing items are dropped —
 // a 15-key deck shows the 14 most urgent columns/sessions (groupByRepo already sorts by urgency).
-func deckKeyLayout(sections: [RepoSection], page: DeckPage, keyCount: Int = StreamDeck.keyCount) -> [DeckKey] {
+func deckKeyLayout(sections: [RepoSection], page: DeckPage, keyCount: Int = deckKeyCount) -> [DeckKey] {
     var keys: [DeckKey]
     switch page {
     case .sessions(let repoKey) where sections.contains(where: { repoGroupKey($0) == repoKey }):
@@ -919,7 +943,7 @@ func hudFitColumns(panelWidth: CGFloat, columnWidth: CGFloat, gap: CGFloat, side
 }
 
 struct StatusStyle {
-    let dot: NSColor
+    let dot: HUDColor
     let word: String
     let order: Int
 }

@@ -71,6 +71,6 @@ func deadPid() -> Int32 {
     let p = Process()
     p.executableURL = URL(fileURLWithPath: "/usr/bin/true")
     try! p.run()
-    p.waitUntilExit()
+    waitExit(p)   // Commands.swift — Linux-safe wait
     return p.processIdentifier
 }

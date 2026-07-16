@@ -11,8 +11,13 @@ func runCommandsTests() {
     }
 
     test("runCommand: cwd is honored") {
-        let out = runCommand(["/bin/pwd"], cwd: "/private/tmp")
-        expectEq(out?.trimmingCharacters(in: .whitespacesAndNewlines), "/private/tmp")
+        #if canImport(Darwin)
+        let dir = "/private/tmp"   // /tmp is a symlink; pwd prints the resolved path
+        #else
+        let dir = "/tmp"
+        #endif
+        let out = runCommand(["/bin/pwd"], cwd: dir)
+        expectEq(out?.trimmingCharacters(in: .whitespacesAndNewlines), dir)
     }
 
     test("runCommand: HERDR_* env never reaches children (nested-herdr guard)") {

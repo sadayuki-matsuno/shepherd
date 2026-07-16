@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(Glibc)
+import Glibc   // kill / ESRCH (Darwin re-exports these through Foundation)
+#endif
 
 // MARK: - Claude Code's per-process session registry (~/.claude/sessions/<pid>.json)
 //

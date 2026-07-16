@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(Glibc)
+import Glibc   // socket / connect / setsockopt (Darwin re-exports these through Foundation)
+#endif
 
 // cc-daemon's control socket — the undocumented protocol `claude stop` speaks.
 //
@@ -45,12 +48,18 @@ private func daemonRPC(_ message: [String: Any], timeoutMs: Int32 = 300) -> [Str
         }
     }
 
+    // Glibc's SOCK_STREAM is an enum (__socket_type), Darwin's a plain Int32.
+    #if canImport(Glibc)
+    let fd = socket(AF_UNIX, Int32(SOCK_STREAM.rawValue), 0)
+    #else
     let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+    #endif
     guard fd >= 0 else { return nil }
     defer { close(fd) }
 
     // A hung daemon must not stall a refresh (the CLI waits 5s here; we won't).
-    var tv = timeval(tv_sec: Int(timeoutMs / 1000), tv_usec: Int32((timeoutMs % 1000) * 1000))
+    // suseconds_t is Int32 on Darwin but Int on Glibc — spell the field type, not a literal one.
+    var tv = timeval(tv_sec: time_t(timeoutMs / 1000), tv_usec: suseconds_t((timeoutMs % 1000) * 1000))
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
 

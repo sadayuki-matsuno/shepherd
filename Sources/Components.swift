@@ -505,10 +505,7 @@ func tierBarsImage(tier: Int, color: NSColor) -> NSImage {
     }
 }
 
-// Permission-mode classifier (the drawn lock glyph itself is gone, 2026-07-15 evening —
-// the mode now tints the title row's where-it-runs glyph; this enum remains as the
-// "known mode" predicate behind lockGlyph(for:)).
-enum LockGlyph { case closed, unlatched, open }
+// (LockGlyph moved to Models.swift — the Linux build excludes this AppKit file.)
 
 // "Consults →" arrow between the model and its advisor. Drawn, not the text glyph "→" —
 // a 10.5pt text arrow rendered as a faint smudge (2026-07-15 feedback); this one has a real

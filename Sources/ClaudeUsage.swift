@@ -1,5 +1,10 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking   // URLSession lives in a separate module on Linux
+#endif
+#if canImport(Security)
 import Security
+#endif
 
 // MARK: - Claude plan usage / rate limits (the same data `/usage` shows)
 //
@@ -31,6 +36,7 @@ func claudeOAuthAccessToken() -> String? {
         if let oauth = obj["claudeAiOauth"] as? [String: Any], let t = oauth["accessToken"] as? String { return t }
         return obj["accessToken"] as? String
     }
+    #if canImport(Security)
     let query: [String: Any] = [
         kSecClass as String: kSecClassGenericPassword,
         kSecAttrService as String: "Claude Code-credentials",
@@ -40,6 +46,8 @@ func claudeOAuthAccessToken() -> String? {
     var out: AnyObject?
     if SecItemCopyMatching(query as CFDictionary, &out) == errSecSuccess,
        let data = out as? Data, let t = token(from: data) { return t }
+    #endif
+    // On Linux, Claude Code stores credentials in the file only — the fallback IS the path.
     let path = (NSHomeDirectory() as NSString).appendingPathComponent(".claude/.credentials.json")
     if let data = FileManager.default.contents(atPath: path), let t = token(from: data) { return t }
     return nil

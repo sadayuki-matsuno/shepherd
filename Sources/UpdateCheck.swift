@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking   // URLSession lives in a separate module on Linux
+#endif
 
 // MARK: - Update check (GitHub releases)
 //

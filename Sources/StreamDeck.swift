@@ -14,7 +14,7 @@ final class StreamDeck {
     static let vendorElgato = 0x0fd9
     static let productIDs = [0x0080, 0x006d, 0x00a5, 0x00b9]  // MK.2, Original V2, MK.2 scissor, MK.2 module/V2
 
-    static let keyCount = 15
+    static let keyCount = deckKeyCount   // defined in Models.swift (15) — shared with the layout logic
     static let keyPixels = 72
     private static let imageReportLength = 1024
     private static let imageHeaderLength = 8
