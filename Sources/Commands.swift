@@ -7,7 +7,10 @@ func runCommand(_ args: [String], cwd: String? = nil, ignoreExit: Bool = false, 
     let p = Process()
     p.executableURL = URL(fileURLWithPath: args[0])
     p.arguments = Array(args.dropFirst())
-    if let cwd = cwd { p.currentDirectoryURL = URL(fileURLWithPath: cwd) }
+    // Never let a child inherit our own cwd: commands that care about a directory always pass
+    // one explicitly, and an inherited-but-deleted cwd kills children at startup (Bun/git read
+    // their cwd first thing). Belt to main.swift's launch-time chdir("/") braces.
+    p.currentDirectoryURL = URL(fileURLWithPath: cwd ?? "/")
     // Strip HERDR_* from the child env: when Shepherd is launched from inside a herdr pane those
     // vars propagate into every process we spawn, and a nested herdr self-terminates. Harmless to
     // keep now that Shepherd never runs herdr itself. (Verified: herdr CLI

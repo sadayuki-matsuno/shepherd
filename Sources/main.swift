@@ -203,6 +203,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NST
 if let d = ProcessInfo.processInfo.environment["SHEPHERD_SESSIONS_DIR"] { claudeSessionsDir = d }
 if let d = ProcessInfo.processInfo.environment["SHEPHERD_PROJECTS_DIR"] { claudeProjectsDir = d }
 
+// Detach from wherever we were launched (classic daemon practice): a long-lived accessory app
+// must not keep depending on its inherited cwd. Launched from a git worktree that later gets
+// removed, every child process inherits the dead directory and dies at startup — `claude agents`
+// (Bun) with ENOENT, `git` with "Unable to read current working directory" — and the board
+// silently empties to rows=0 (2026-07-17, reproduced on-device).
+FileManager.default.changeCurrentDirectoryPath("/")
+
 // Single instance guard
 if let bundleId = Bundle.main.bundleIdentifier,
    NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).count > 1 {
