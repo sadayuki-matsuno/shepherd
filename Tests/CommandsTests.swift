@@ -165,7 +165,7 @@ func runCommandsTests() {
                     pane command="nvim" focus=true size="25%"
                 }
             }
-            tab name="party-game (main)" hide_floating_panes=true {
+            tab name="demo-app (main)" hide_floating_panes=true {
                 pane size=1 borderless=true {
                     plugin location="zellij:tab-bar"
                 }

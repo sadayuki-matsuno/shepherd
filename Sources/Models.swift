@@ -509,7 +509,7 @@ func repoGroupKey(_ s: RepoSection) -> String {
 
 // How to shut a session down when the user hits "close" — one branch per kind of session, because
 // each kind dies a different death (all measured 2026-07-09 on claude 2.1.205):
-//  - a cc-daemon background agent (the "party-game card that won't die" — a `/remote-control` fork the
+//  - a cc-daemon background agent (the "background card that won't die" — a `/remote-control` fork the
 //    daemon keeps resuming from its roster) ignores SIGTERM to its leaf pid, because the daemon just
 //    respawns it. `claude stop <id>` removes it from the roster, and the leaf dies with it. On an
 //    already-stopped record stop stays exit-0, so this is safely idempotent;
@@ -830,7 +830,7 @@ func resolvedDeckPage(sections: [RepoSection], page: DeckPage) -> DeckPage {
 // Fold same-conversation forks into the family tree (2026-07-09). Claude Code's session picker
 // (/resume) and /branch · /rewind · --fork-session copy a conversation's history into a NEW
 // session id and keep BOTH alive — so a forked session lands as its own card with the same AI
-// title as its origin (the "two identical party-game cards" report). There's no fork flag in the
+// title as its origin (the "two identical cards" report). There's no fork flag in the
 // status file, so we key on the one definitive signal: a fork shares its origin's FIRST user
 // message verbatim, hence the same `forkKey` (first-message timestamp). Rows sharing (cwd, forkKey)
 // are one conversation; the earliest-started one is the root, the rest are re-parented onto it and

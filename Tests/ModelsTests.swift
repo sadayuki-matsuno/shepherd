@@ -27,7 +27,7 @@ let claudeAgentsFixture: [[String: Any]] = [
     ["pid": 37200, "id": "f0415bb1", "cwd": "/x/throwaway", "kind": "background", "startedAt": 1783598751724,
      "sessionId": "f0415bb1-24b8-4c16-a210-8cd0ef35d7a5", "name": "sleep then reply",
      "status": "busy", "state": "working"],
-    ["id": "1b6c4535", "cwd": "/x/party-game", "kind": "background", "startedAt": 1782571963594,
+    ["id": "1b6c4535", "cwd": "/x/demo-app", "kind": "background", "startedAt": 1782571963594,
      "sessionId": "1b6c4535-1111-2222-3333-444444444444", "name": "バトルシップ観戦時のマーキング表示改善",
      "state": "done"],
     ["kind": "interactive", "pid": 999],   // no sessionId — unusable, dropped
@@ -664,7 +664,7 @@ func runModelsTests() {
         expectEq(row.status, "idle", "a finished background job maps onto idle")
         expectEq(row.isBackground, true)
         expectEq(row.activity, "バトルシップ観戦時のマーキング表示改善", "the AI title becomes the card title")
-        expectEq(row.cwd, "/x/party-game")
+        expectEq(row.cwd, "/x/demo-app")
         expectEq(row.updatedAt, seen, "transcript mtime drives the existing 24h filter")
         expectEq(row.statusSince, seen, "and seeds the elapsed clock")
         expect(row.backend == .other, "no zellij info: can't jump or send")
@@ -684,13 +684,13 @@ func runModelsTests() {
     }
 
     test("claudeAgentRow: git facts group the record under its repo instead of a solo card") {
-        let g = GitFacts(branch: "feat/issue42-marking", changed: 0, repoKey: "/x/party-game/.git",
-                         repoName: "party-game", isWorktree: false, prNo: 7, prUrl: "https://github.com/x/pr/7",
+        let g = GitFacts(branch: "feat/issue42-marking", changed: 0, repoKey: "/x/demo-app/.git",
+                         repoName: "demo-app", isWorktree: false, prNo: 7, prUrl: "https://github.com/x/pr/7",
                          ciState: .pass)
         let e = parseClaudeAgents(claudeAgentsFixture)[2]
         let row = claudeAgentRow(e, updatedAt: nil, git: g)
-        expectEq(row.repoKey, "/x/party-game/.git", "joins its repo group — no more solo section")
-        expectEq(row.repoName, "party-game")
+        expectEq(row.repoKey, "/x/demo-app/.git", "joins its repo group — no more solo section")
+        expectEq(row.repoName, "demo-app")
         expectEq(row.branch, "feat/issue42-marking")
         expectEq(row.prNo, 7, "the PR badge carries over")
         expectEq(row.issueNo, 42, "issue number parsed from the branch, like every other row")

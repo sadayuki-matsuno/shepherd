@@ -676,7 +676,21 @@ extension AppDelegate {
     func creditColumn(_ credit: CreditInfo?) -> NSView {
         let col = NSStackView()
         col.orientation = .vertical; col.spacing = 3; col.alignment = .leading
-        col.addArrangedSubview(makeLabel(L("クレジット", "credits"), size: 10, weight: .bold, color: Cat.overlay))
+        let head = NSStackView()
+        head.orientation = .horizontal; head.spacing = 6; head.alignment = .centerY
+        let headTitle = makeLabel(L("クレジット", "credits"), size: 10, weight: .bold, color: Cat.overlay)
+        head.addArrangedSubview(headTitle)
+        if creditBurn {
+            let burning = symbolLabel("dollarsign.circle.fill", L("消費中", "burning"),
+                                      size: 10, weight: .bold, color: Cat.amber)
+            burning.setContentCompressionResistancePriority(.required, for: .horizontal)
+            // The zone is as narrow as ~78pt in a 1-column layout — the burning mark wins the
+            // space and the title truncates (the amber glow already names the zone's state).
+            headTitle.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            headTitle.lineBreakMode = .byTruncatingTail
+            head.addArrangedSubview(burning)
+        }
+        col.addArrangedSubview(head)
         guard let c = credit else {
             col.addArrangedSubview(makeLabel("—", size: 11, color: Cat.overlay))
             return col
@@ -736,14 +750,47 @@ extension AppDelegate {
                                                  size: 9.5, color: Cat.overlay))
             }
         }
-        return col
+
+        // Credits are burning RIGHT NOW → the zone itself glows amber (2026-07-17 user direction:
+        // consumption is an account-level fact, so it's the account-level zone that lights up, not
+        // the cards). Same breathing rhythm as a working card's border; static at reduce-motion.
+        guard creditBurn else { return col }
+        let glow = NSView()
+        glow.wantsLayer = true
+        glow.layer?.cornerRadius = 7
+        glow.layer?.backgroundColor = Cat.amber.withAlphaComponent(0.08).cgColor
+        glow.layer?.borderWidth = 1.5
+        col.translatesAutoresizingMaskIntoConstraints = false
+        glow.addSubview(col)
+        NSLayoutConstraint.activate([
+            col.topAnchor.constraint(equalTo: glow.topAnchor, constant: 6),
+            col.bottomAnchor.constraint(equalTo: glow.bottomAnchor, constant: -6),
+            col.leadingAnchor.constraint(equalTo: glow.leadingAnchor, constant: 8),
+            col.trailingAnchor.constraint(equalTo: glow.trailingAnchor, constant: -8),
+        ])
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            glow.layer?.borderColor = Cat.amber.withAlphaComponent(0.6).cgColor
+        } else {
+            glow.layer?.borderColor = Cat.amber.withAlphaComponent(0.9).cgColor
+            let blink = CABasicAnimation(keyPath: "borderColor")
+            blink.fromValue = Cat.amber.withAlphaComponent(0.9).cgColor
+            blink.toValue = Cat.amber.withAlphaComponent(0.25).cgColor
+            blink.duration = 0.7
+            blink.autoreverses = true
+            blink.repeatCount = .infinity
+            blink.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            glow.layer?.add(blink, forKey: "creditblink")
+        }
+        return glow
     }
 
     // Top dashboard: a 3-zone instrument strip (2026-07-16 redesign). A full-width header line —
     // title + plan-tier chip … fetched-at stamp + manual ↻ — makes the title read as naming the
     // whole card; below it the gauges (bars shortened from board-width) sit left of a permanent
     // credit column. On a failed refresh the old numbers stay up, dimmed (stale-while-error).
-    func usageDashboardView(width: CGFloat) -> NSView {
+    // `compact` (the minimized strip, 2026-07-17) keeps the gauges — the numbers that matter most —
+    // and drops the credit column; credit burn still reaches the strip via the header chip.
+    func usageDashboardView(width: CGFloat, compact: Bool = false) -> NSView {
         let box = NSStackView()
         box.orientation = .vertical; box.spacing = 6; box.alignment = .leading
         box.edgeInsets = NSEdgeInsets(top: 4, left: 2, bottom: 6, right: 2)
@@ -814,22 +861,24 @@ extension AppDelegate {
                 gauges.addArrangedSubview(row)
                 row.widthAnchor.constraint(equalTo: gauges.widthAnchor).isActive = true
             }
-            let divider = NSView()
-            divider.wantsLayer = true
-            divider.layer?.backgroundColor = Cat.surface1.withAlphaComponent(0.55).cgColor
-            divider.translatesAutoresizingMaskIntoConstraints = false
-            divider.widthAnchor.constraint(equalToConstant: 1).isActive = true
-
-            let credit = creditColumn(usage.credit)
-            credit.setContentHuggingPriority(.required, for: .horizontal)
-
             content.addArrangedSubview(gauges)
-            content.addArrangedSubview(divider)
-            content.addArrangedSubview(credit)
-            NSLayoutConstraint.activate([
-                credit.widthAnchor.constraint(equalToConstant: min(190, innerWidth * 0.35)),
-                divider.heightAnchor.constraint(equalTo: content.heightAnchor),
-            ])
+            if !compact {
+                let divider = NSView()
+                divider.wantsLayer = true
+                divider.layer?.backgroundColor = Cat.surface1.withAlphaComponent(0.55).cgColor
+                divider.translatesAutoresizingMaskIntoConstraints = false
+                divider.widthAnchor.constraint(equalToConstant: 1).isActive = true
+
+                let credit = creditColumn(usage.credit)
+                credit.setContentHuggingPriority(.required, for: .horizontal)
+
+                content.addArrangedSubview(divider)
+                content.addArrangedSubview(credit)
+                NSLayoutConstraint.activate([
+                    credit.widthAnchor.constraint(equalToConstant: min(190, innerWidth * 0.35)),
+                    divider.heightAnchor.constraint(equalTo: content.heightAnchor),
+                ])
+            }
             if stale { content.alphaValue = 0.55 }
             box.addArrangedSubview(content)
             content.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
@@ -913,10 +962,17 @@ extension AppDelegate {
         // status row (24h filter + summary pills) sitting right on top of the board (2026-07-11).
         let (brand, status) = headerView(rows: filtered)
         var views: [NSView] = [brand]
-        if showUsageDashboard { views.append(usageDashboardView(width: boardSpanWidth)) }
+        // Minimized builds the dashboard compact (gauges only, panel-width) — the wide variant
+        // used to be clipped to the strip's width, which cut the gauges off entirely (2026-07-17).
+        if showUsageDashboard {
+            views.append(minimized
+                ? usageDashboardView(width: contentWidth - 24, compact: true)
+                : usageDashboardView(width: boardSpanWidth))
+        }
         if let status = status { views.append(status) }
 
-        // Minimized: dashboard + header summary only — skip the whole body and hint line.
+        // Minimized: dashboard + summary strip only — skip the board body and hint line (the
+        // status row now stays, so blocked/working counts survive minimizing — 2026-07-17).
         // This wins over the fixed size modes: a mostly-empty fixed panel with one strip is noise.
         if minimized {
             stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
