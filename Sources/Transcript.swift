@@ -577,7 +577,7 @@ func transcriptTurnActive(cwd: String, sessionId: String) -> Bool? {
 // MARK: - Teammate idle notifications
 //
 // When an in-process teammate (agent teams) ends a turn, the LEAD session's transcript gets a user
-// record whose content embeds a machine-readable event (measured on party-game, 2026-07-14):
+// record whose content embeds a machine-readable event (measured 2026-07-14):
 //
 //   <teammate-message teammate_id="catalog-crokinole" color="blue">
 //   {"type":"idle_notification","from":"catalog-crokinole","timestamp":"…","idleReason":"available"}
@@ -656,7 +656,7 @@ func teammateIdleTimes(cwd: String, sessionId: String) -> [String: Date] {
 // teammate's jsonl (nothing happened since the harness said "idle"; a jsonl write after it means
 // the teammate was re-activated by a new message), and 30 minutes of jsonl silence reads as idle —
 // the backstop for a teammate killed without a notification (the longest live tool-call generation
-// gap measured on party-game was ~8 min, so 30 min is comfortably past a live one).
+// gap measured on a real project was ~8 min, so 30 min is comfortably past a live one).
 //
 // The 2s tolerance absorbs the flush order at turn end: the final jsonl records land milliseconds
 // BEFORE the notification's event timestamp, but mtime granularity can round past it.
@@ -677,7 +677,7 @@ func teammateWorking(idleAt: Date?, jsonlMtime: Date?, now: Date = Date()) -> Bo
 // message whose stop_reason is "end_turn"; one still working ends mid-turn (stop_reason "tool_use",
 // a thinking block, a pending tool_result). Measured on a live pair, 2026-07-10.
 // For in-process teammates that tail is ambiguous (see teammateWorking above), so their state is
-// ruled by the lead transcript's idle_notification instead (party-game, 2026-07-14).
+// ruled by the lead transcript's idle_notification instead (measured 2026-07-14).
 //
 // Note the parent's own tool_result can't answer this: an async agent is answered IMMEDIATELY with
 // {"status":"async_launched"} and keeps running for minutes.
@@ -715,7 +715,7 @@ func subagentsFromTranscript(cwd: String, sessionId: String) -> [SubagentRecord]
         let tail = subagentTail(path: jsonl)
         // The 30-min silence backstop guards plain subagents too: one killed mid tool-call leaves
         // a tool_use tail forever, and a truncated read must not stick a card "working" for hours
-        // (genome, 2026-07-16). teammateWorking with no notification is exactly that backstop.
+        // (measured 2026-07-16). teammateWorking with no notification is exactly that backstop.
         rec.working = !tail.finished && teammateWorking(idleAt: nil, jsonlMtime: mtime(jsonl))
         if (meta["taskKind"] as? String) == "in_process_teammate", let agentName = rec.name {
             if idleTimes == nil { idleTimes = teammateIdleTimes(cwd: cwd, sessionId: sessionId) }
@@ -732,7 +732,7 @@ func subagentsFromTranscript(cwd: String, sessionId: String) -> [SubagentRecord]
 // An agent's state + current activity, from a 256KB tail of its own jsonl (a missing or unreadable
 // file reads as "still working", the safe side of a wrong guess — the card mirrors a green rail
 // that says "look at me" rather than hiding). The window must comfortably exceed a single record:
-// an Explore agent's closing report is one 17–25KB line (genome, 2026-07-16), and a window smaller
+// an Explore agent's closing report is one 17–25KB line (measured 2026-07-16), and a window smaller
 // than the final record starts mid-JSON, parses nothing, and reports "working" forever.
 //
 // finished: the agent's newest assistant record ends with a TEXT block — it wrote a reply and
