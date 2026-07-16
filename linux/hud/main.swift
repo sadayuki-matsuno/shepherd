@@ -14,6 +14,18 @@ if let d = ProcessInfo.processInfo.environment["SHEPHERD_PROJECTS_DIR"] { claude
 var columnsBox: UnsafeMutablePointer<GtkWidget>? = nil
 var rebuildQueued = false
 
+// fetchAgents spawns subprocesses and reads files; running it on the GTK main
+// thread would freeze the board exactly like the macOS "no synchronous
+// subprocess in the rebuild path" landmine. So: fetch on a worker queue, hand
+// the result to the main loop via g_idle_add. One fetch in flight at a time;
+// requests arriving meanwhile coalesce into one follow-up round (the macOS
+// refreshPending rule). fetchInFlight/refreshAgain are main-thread-only;
+// pendingSections is the locked worker→main handoff.
+let pendingLock = NSLock()
+var pendingSections: [RepoSection]? = nil
+var fetchInFlight = false
+var refreshAgain = false
+
 func cssRGB(_ c: HUDColor) -> String {
     "rgb(\(Int(c.red * 255 + 0.5)), \(Int(c.green * 255 + 0.5)), \(Int(c.blue * 255 + 0.5)))"
 }
@@ -62,15 +74,39 @@ func cardView(_ r: AgentRow, depth: Int) -> UnsafeMutablePointer<GtkWidget>? {
     return card
 }
 
+// Main thread: entry point for every refresh trigger (startup, debounced
+// file-monitor event, fallback timer).
 func rebuildBoard() {
+    if fetchInFlight { refreshAgain = true; return }
+    fetchInFlight = true
+    DispatchQueue.global(qos: .userInitiated).async {
+        // Column placement follows the macOS rule (layoutColumns): sections
+        // alphabetical by header, headerless "other" last.
+        var sections = groupByRepo(fetchAgents())
+        sections.sort { ($0.header ?? "\u{10FFFF}") < ($1.header ?? "\u{10FFFF}") }
+        pendingLock.lock()
+        pendingSections = sections
+        pendingLock.unlock()
+        let apply: @convention(c) (gpointer?) -> gboolean = { _ in
+            pendingLock.lock()
+            let sections = pendingSections
+            pendingSections = nil
+            pendingLock.unlock()
+            if let sections = sections { applyBoard(sections) }
+            fetchInFlight = false
+            if refreshAgain { refreshAgain = false; rebuildBoard() }
+            return 0  // G_SOURCE_REMOVE
+        }
+        g_idle_add(apply, nil)   // thread-safe: queues onto the GTK main loop
+    }
+}
+
+// Main thread: swap the widgets in from an already-fetched snapshot.
+func applyBoard(_ sections: [RepoSection]) {
     guard let container = columnsBox else { return }
     while let child = gtk_widget_get_first_child(container) {
         gtk_box_remove(asBox(container), child)
     }
-    // Column placement follows the macOS rule (layoutColumns): sections
-    // alphabetical by header, headerless "other" last.
-    var sections = groupByRepo(fetchAgents())
-    sections.sort { ($0.header ?? "\u{10FFFF}") < ($1.header ?? "\u{10FFFF}") }
     for section in sections {
         guard let col = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6) else { continue }
         gtk_widget_set_size_request(col, 280, -1)
