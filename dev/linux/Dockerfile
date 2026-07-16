@@ -7,8 +7,18 @@
 FROM swift:noble
 
 ENV DEBIAN_FRONTEND=noninteractive
+
+# ports.ubuntu.com has outages; pass e.g.
+#   --build-arg UBUNTU_MIRROR=http://ftp.tsukuba.wide.ad.jp/Linux/ubuntu-ports
+# to build through a mirror. Default keeps the canonical host.
+ARG UBUNTU_MIRROR=""
+RUN if [ -n "$UBUNTU_MIRROR" ]; then \
+        sed -i "s|http://ports.ubuntu.com/ubuntu-ports|$UBUNTU_MIRROR|" /etc/apt/sources.list.d/ubuntu.sources; \
+    fi
+# foot + jq only serve dev/linux/jump-verify.sh (a real terminal window to
+# focus, and JSON parsing of `swaymsg -t get_tree`).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        sway grim \
+        sway grim foot jq \
         libgtk-4-dev libwayland-dev wayland-protocols \
         meson ninja-build pkg-config git ca-certificates \
     && rm -rf /var/lib/apt/lists/*

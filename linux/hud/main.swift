@@ -71,7 +71,118 @@ func cardView(_ r: AgentRow, depth: Int) -> UnsafeMutablePointer<GtkWidget>? {
     if let changed = r.changedFiles, changed > 0 { meta.append("±\(changed)") }
     addLabel(meta.joined(separator: "  "), to: card, cssClass: "meta")
 
+    if let pid = r.pid { wireJumpGesture(card, pid: pid) }
     return card
+}
+
+// MARK: - Jump: click a card to focus the terminal window running it
+
+// Which Wayland compositor we're under, from the env var each sets for its
+// own IPC client (swaymsg / hyprctl) to find its socket.
+enum Compositor { case sway, hyprland }
+
+func detectCompositor() -> Compositor? {
+    let env = ProcessInfo.processInfo.environment
+    if env["SWAYSOCK"] != nil { return .sway }
+    if env["HYPRLAND_INSTANCE_SIGNATURE"] != nil { return .hyprland }
+    return nil
+}
+
+// Recursively pull every "pid" out of a swaymsg get_tree node and its
+// "nodes"/"floating_nodes" children — every window-owning con in the tree
+// carries the pid of the process that opened it.
+func collectSwayPids(_ node: Any, into pids: inout Set<Int32>) {
+    guard let dict = node as? [String: Any] else { return }
+    if let pid = dict["pid"] as? Int { pids.insert(Int32(pid)) }
+    for key in ["nodes", "floating_nodes"] {
+        guard let children = dict[key] as? [Any] else { continue }
+        for child in children { collectSwayPids(child, into: &pids) }
+    }
+}
+
+func swayWindowPids(_ swaymsg: String) -> Set<Int32> {
+    guard let out = runCommand([swaymsg, "-t", "get_tree"]),
+          let data = out.data(using: .utf8),
+          let tree = try? JSONSerialization.jsonObject(with: data) else { return [] }
+    var pids: Set<Int32> = []
+    collectSwayPids(tree, into: &pids)
+    return pids
+}
+
+// hyprctl's own JSON is already flat, one object per client — no tree to walk.
+// UNVERIFIED: there is no Hyprland instance in the dev container, so this
+// branch has never run against a real compositor — only checked against the
+// documented `hyprctl clients -j` / `hyprctl dispatch focuswindow pid:N` shape.
+func hyprlandWindowPids(_ hyprctl: String) -> Set<Int32> {
+    guard let out = runCommand([hyprctl, "clients", "-j"]),
+          let data = out.data(using: .utf8),
+          let clients = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
+    var pids: Set<Int32> = []
+    for client in clients { if let pid = client["pid"] as? Int { pids.insert(Int32(pid)) } }
+    return pids
+}
+
+// Walk a claude session pid's ppid chain (processTable — the same source
+// zellijDescendant reads) up to the first ancestor the compositor recognizes
+// as a window. That ancestor is the terminal (or multiplexer) the session
+// actually runs in — the pid we need to focus.
+func ancestorWindowPid(pid: Int32, table: [Int32: (ppid: Int32, comm: String)], windowPids: Set<Int32>) -> Int32? {
+    var cur = pid
+    var visited: Set<Int32> = []
+    while !visited.contains(cur) {
+        if windowPids.contains(cur) { return cur }
+        visited.insert(cur)
+        guard let entry = table[cur] else { return nil }
+        cur = entry.ppid
+    }
+    return nil
+}
+
+// Card click / SHEPHERD_JUMP_SESSION test hook: resolve a claude session's
+// pid to its window and focus it. Any missing piece (no known compositor, no
+// swaymsg/hyprctl binary, ancestor chain never reaches a window) is a silent
+// no-op — there is no fallback jump path on Linux yet (cf. the macOS Ghostty
+// AppleScript jump).
+@discardableResult
+func jumpToSession(pid: Int32) -> Bool {
+    guard let compositor = detectCompositor() else { return false }
+    switch compositor {
+    case .sway:
+        guard let swaymsg = firstExisting(["/usr/bin/swaymsg", "/usr/local/bin/swaymsg"]),
+              let winPid = ancestorWindowPid(pid: pid, table: processTable(), windowPids: swayWindowPids(swaymsg))
+        else { return false }
+        return runCommand([swaymsg, "[pid=\(winPid)] focus"]) != nil
+    case .hyprland:
+        guard let hyprctl = firstExisting(["/usr/bin/hyprctl", "/usr/local/bin/hyprctl"]),
+              let winPid = ancestorWindowPid(pid: pid, table: processTable(), windowPids: hyprlandWindowPids(hyprctl))
+        else { return false }
+        return runCommand([hyprctl, "dispatch", "focuswindow", "pid:\(winPid)"]) != nil
+    }
+}
+
+// GTK click handlers are @convention(c) closures and cannot capture Swift
+// state (the same constraint as every other GTK callback in this file), so
+// the target pid rides through as the "pressed" signal's user_data,
+// pointer-sized — real pids are always positive so bitPattern round-trips.
+func wireJumpGesture(_ widget: UnsafeMutablePointer<GtkWidget>, pid: Int32) {
+    guard let gesture = gtk_gesture_click_new() else { return }
+    let pressed: @convention(c) (
+        UnsafeMutableRawPointer?, Int32, Double, Double, UnsafeMutableRawPointer?
+    ) -> Void = { _, _, _, _, data in
+        guard let data = data else { return }
+        jumpToSession(pid: Int32(Int(bitPattern: data)))
+    }
+    g_signal_connect_data(
+        UnsafeMutableRawPointer(gesture),
+        "pressed",
+        unsafeBitCast(pressed, to: GCallback.self),
+        UnsafeMutableRawPointer(bitPattern: Int(pid)),
+        nil, GConnectFlags(rawValue: 0)
+    )
+    // GtkGesture/GtkEventController are incomplete C types here (like
+    // GtkStyleProvider elsewhere in this file) — Swift already hands back
+    // `gesture` itself as OpaquePointer, which is exactly what this expects.
+    gtk_widget_add_controller(widget, gesture)
 }
 
 // Main thread: entry point for every refresh trigger (startup, debounced
@@ -118,6 +229,24 @@ func applyBoard(_ sections: [RepoSection]) {
         }
         gtk_box_append(asBox(container), col)
     }
+    maybeRunJumpTest(sections)
+}
+
+var jumpTestFired = false
+
+// SHEPHERD_JUMP_SESSION=<sessionId>: once, right after the first board
+// renders, run the exact click-path jump for that session and report the
+// outcome to stderr — jump-verify.sh reads this instead of synthesizing a
+// real pointer click (headless sway has no pointer device).
+func maybeRunJumpTest(_ sections: [RepoSection]) {
+    guard !jumpTestFired, let target = ProcessInfo.processInfo.environment["SHEPHERD_JUMP_SESSION"] else { return }
+    jumpTestFired = true
+    guard let row = sections.flatMap({ $0.rows }).first(where: { $0.sessionId == target }), let pid = row.pid else {
+        FileHandle.standardError.write("SHEPHERD_JUMP_SESSION: session \(target) not found or has no pid\n".data(using: .utf8)!)
+        return
+    }
+    let ok = jumpToSession(pid: pid)
+    FileHandle.standardError.write("SHEPHERD_JUMP_SESSION: session=\(target) pid=\(pid) jump=\(ok)\n".data(using: .utf8)!)
 }
 
 // FSEvents-equivalent: rebuild 0.2s after a registry-dir event, like the macOS
