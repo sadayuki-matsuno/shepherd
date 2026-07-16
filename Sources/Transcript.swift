@@ -713,7 +713,10 @@ func subagentsFromTranscript(cwd: String, sessionId: String) -> [SubagentRecord]
         let jsonl = (subagents as NSString)
             .appendingPathComponent(String(name.dropLast(".meta.json".count)) + ".jsonl")
         let tail = subagentTail(path: jsonl)
-        rec.working = !tail.finished
+        // The 30-min silence backstop guards plain subagents too: one killed mid tool-call leaves
+        // a tool_use tail forever, and a truncated read must not stick a card "working" for hours
+        // (genome, 2026-07-16). teammateWorking with no notification is exactly that backstop.
+        rec.working = !tail.finished && teammateWorking(idleAt: nil, jsonlMtime: mtime(jsonl))
         if (meta["taskKind"] as? String) == "in_process_teammate", let agentName = rec.name {
             if idleTimes == nil { idleTimes = teammateIdleTimes(cwd: cwd, sessionId: sessionId) }
             rec.working = teammateWorking(idleAt: idleTimes?[agentName], jsonlMtime: mtime(jsonl))
@@ -726,9 +729,11 @@ func subagentsFromTranscript(cwd: String, sessionId: String) -> [SubagentRecord]
     return out
 }
 
-// An agent's state + current activity, from a 16KB tail of its own jsonl (one record is rarely
-// bigger; a missing or unreadable file reads as "still working", the safe side of a wrong guess —
-// the card mirrors a green rail that says "look at me" rather than hiding).
+// An agent's state + current activity, from a 256KB tail of its own jsonl (a missing or unreadable
+// file reads as "still working", the safe side of a wrong guess — the card mirrors a green rail
+// that says "look at me" rather than hiding). The window must comfortably exceed a single record:
+// an Explore agent's closing report is one 17–25KB line (genome, 2026-07-16), and a window smaller
+// than the final record starts mid-JSON, parses nothing, and reports "working" forever.
 //
 // finished: the agent's newest assistant record ends with a TEXT block — it wrote a reply and
 // isn't mid-tool. `stop_reason` looked like the signal but isn't reliable: a plain subagent stamps
@@ -744,8 +749,8 @@ func subagentTail(path: String) -> (finished: Bool, activity: String?) {
     guard let fh = FileHandle(forReadingAtPath: path) else { return (false, nil) }
     defer { try? fh.close() }
     let size = (try? fh.seekToEnd()) ?? 0
-    if size > 16_384, (try? fh.seek(toOffset: size - 16_384)) == nil { return (false, nil) }
-    else if size <= 16_384 { try? fh.seek(toOffset: 0) }
+    if size > 262_144, (try? fh.seek(toOffset: size - 262_144)) == nil { return (false, nil) }
+    else if size <= 262_144 { try? fh.seek(toOffset: 0) }
     guard let data = try? fh.readToEnd() else { return (false, nil) }
     for line in String(decoding: data, as: UTF8.self).split(separator: "\n").reversed() {
         guard let d = line.data(using: .utf8),
