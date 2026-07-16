@@ -286,7 +286,9 @@ extension AppDelegate {
     }
 
     // Fetch plan-usage at most once a minute, on its own background hop so a slow HTTP call never
-    // blocks the 5s agent poll. Repaints when the snapshot changes.
+    // blocks the 5s agent poll. Repaints when the snapshot changes. Stale-while-error: a failed
+    // fetch must never replace good gauges (a sleep-wake network blip used to blank the whole
+    // dashboard for a minute) — keep the old snapshot and stamp usageError instead.
     func maybeRefreshUsage() {
         guard showUsageDashboard, !usageFetching,
               Date().timeIntervalSince(usageFetchedAt) > 60 else { return }
@@ -296,13 +298,34 @@ extension AppDelegate {
             DispatchQueue.main.async {
                 self.usageFetching = false
                 self.usageFetchedAt = Date()
-                if let snap = snap { self.lastUsage = snap }
+                if let snap = snap {
+                    if snap.error == nil {
+                        self.lastUsage = snap
+                        self.usageError = nil
+                    } else {
+                        self.usageError = snap.error
+                        // Nothing to keep? Show the error snapshot itself (message body).
+                        if self.lastUsage == nil { self.lastUsage = snap }
+                    }
+                } else {
+                    self.usageError = L("トークンが読めない", "no oauth token")
+                }
                 if self.replyPopover == nil && self.repoPickerPopover == nil && self.dropPopover == nil
                     && self.helpPopover == nil {
                     self.rebuild(rows: self.lastRows)
                 }
             }
         }
+    }
+
+    // The dashboard's ↻: refresh EVERYTHING the header shows, bypassing every cache guard —
+    // usage/credit (60s), plan tier (24h), account chip. Then one board refresh so card facts
+    // follow. Safe to spam: usageFetching still dedupes concurrent fetches.
+    func forceDashboardRefresh() {
+        usageFetchedAt = .distantPast
+        factsLock.lock(); planTierCache = nil; accountCache = nil; factsLock.unlock()
+        maybeRefreshUsage()
+        refresh()
     }
 
     // Percent at/above which a weekly quota window is mirrored into the header (A9). Default 90;

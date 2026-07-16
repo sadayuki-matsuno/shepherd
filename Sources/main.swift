@@ -69,6 +69,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NST
     var lastUsage: UsageSnapshot?
     var usageFetchedAt = Date.distantPast
     var usageFetching = false
+    // Last fetch's failure, kept SEPARATE from lastUsage: an error must not wipe the gauges
+    // (stale-while-error — the old numbers stay up, dimmed, with a "更新失敗" stamp).
+    var usageError: String?
 
     // Layout: repos are always laid out as fixed-width masonry columns (v5fix3 #3 — the old
     // single-column row mode is gone). Columns are individually collapsible (state persisted per repo).

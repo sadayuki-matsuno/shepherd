@@ -670,23 +670,171 @@ extension AppDelegate {
         return "→\(h / 24)d"
     }
 
-    // Top dashboard: the plan-usage gauges (5h / weekly / per-model) shown above everything else.
+    // The credit (spend) column on the dashboard's right. ALWAYS present: `used` comes back even
+    // on accounts that never bought credits, while `balance`/`cap` are null until extra usage is
+    // enabled — those render as "—" rather than hiding the block (2026-07-16 user decision).
+    func creditColumn(_ credit: CreditInfo?) -> NSView {
+        let col = NSStackView()
+        col.orientation = .vertical; col.spacing = 3; col.alignment = .leading
+        col.addArrangedSubview(makeLabel(L("クレジット", "credits"), size: 10, weight: .bold, color: Cat.overlay))
+        guard let c = credit else {
+            col.addArrangedSubview(makeLabel("—", size: 11, color: Cat.overlay))
+            return col
+        }
+        let color: NSColor = {
+            switch c.severity {
+            case "critical", "severe": return Cat.red
+            case "warning": return Cat.peach
+            default: return Cat.teal
+            }
+        }()
+        // Headline number: a prepaid balance when the API carries one, else the computed
+        // remainder of the monthly cap (limit − used), else "—" (extra usage off).
+        let (balLabel, balValue): (String, String?) =
+            c.balanceText != nil ? (L("残高", "balance"), c.balanceText)
+            : c.remainingText != nil ? (L("残り", "left"), c.remainingText)
+            : (L("残高", "balance"), nil)
+        let bal = NSStackView()
+        bal.orientation = .horizontal; bal.spacing = 5; bal.alignment = .firstBaseline
+        bal.addArrangedSubview(makeLabel(balLabel, size: 10, color: Cat.overlay))
+        bal.addArrangedSubview(makeLabel(balValue ?? "—", size: 12.5, weight: .semibold,
+                                         color: balValue != nil ? color : Cat.overlay, mono: true))
+        col.addArrangedSubview(bal)
+
+        if c.enabled, let pct = c.percent {
+            let track = NSView()
+            track.wantsLayer = true
+            track.layer?.backgroundColor = Cat.surface1.withAlphaComponent(0.5).cgColor
+            track.layer?.cornerRadius = 3
+            track.translatesAutoresizingMaskIntoConstraints = false
+            track.heightAnchor.constraint(equalToConstant: 6).isActive = true
+            let fill = NSView()
+            fill.wantsLayer = true
+            fill.layer?.backgroundColor = color.cgColor
+            fill.layer?.cornerRadius = 3
+            fill.translatesAutoresizingMaskIntoConstraints = false
+            track.addSubview(fill)
+            NSLayoutConstraint.activate([
+                fill.leadingAnchor.constraint(equalTo: track.leadingAnchor),
+                fill.topAnchor.constraint(equalTo: track.topAnchor),
+                fill.bottomAnchor.constraint(equalTo: track.bottomAnchor),
+                fill.widthAnchor.constraint(equalTo: track.widthAnchor, multiplier: max(0, min(1, pct / 100))),
+            ])
+            col.addArrangedSubview(track)
+            track.widthAnchor.constraint(equalTo: col.widthAnchor).isActive = true
+            let limit = c.limitText.map { " / \($0)" } ?? ""
+            col.addArrangedSubview(makeLabel(
+                L("使用 \(c.usedText ?? "—")\(limit)（\(Int(pct.rounded()))%）",
+                  "used \(c.usedText ?? "—")\(limit) (\(Int(pct.rounded()))%)"),
+                size: 10, color: Cat.subtext, mono: true))
+        } else {
+            col.addArrangedSubview(makeLabel(L("使用 \(c.usedText ?? "—")", "used \(c.usedText ?? "—")"),
+                                             size: 10, color: Cat.subtext, mono: true))
+            // The "off" note only when it's actually off — enabled-but-percentless just shows less.
+            if !c.enabled {
+                col.addArrangedSubview(makeLabel(L("追加使用量 未契約", "extra usage off"),
+                                                 size: 9.5, color: Cat.overlay))
+            }
+        }
+        return col
+    }
+
+    // Top dashboard: a 3-zone instrument strip (2026-07-16 redesign). A full-width header line —
+    // title + plan-tier chip … fetched-at stamp + manual ↻ — makes the title read as naming the
+    // whole card; below it the gauges (bars shortened from board-width) sit left of a permanent
+    // credit column. On a failed refresh the old numbers stay up, dimmed (stale-while-error).
     func usageDashboardView(width: CGFloat) -> NSView {
         let box = NSStackView()
-        box.orientation = .vertical; box.spacing = 5; box.alignment = .leading
+        box.orientation = .vertical; box.spacing = 6; box.alignment = .leading
         box.edgeInsets = NSEdgeInsets(top: 4, left: 2, bottom: 6, right: 2)
+        let innerWidth = width - 24   // box is width-20; minus its own 2+2 edge insets
 
+        let stale = usageError != nil && !(lastUsage?.windows.isEmpty ?? true)
+
+        let head = NSStackView()
+        head.orientation = .horizontal; head.spacing = 7; head.alignment = .centerY
         let title = makeLabel(L("プラン使用量", "plan usage"), size: 10, weight: .bold, color: Cat.overlay)
-        box.addArrangedSubview(title)
+        title.setContentCompressionResistancePriority(.required, for: .horizontal)
+        head.addArrangedSubview(title)
+        if let tier = lastUsage?.planTier {
+            let chip = pill(tier, color: Cat.mauve)
+            chip.setContentCompressionResistancePriority(.required, for: .horizontal)
+            head.addArrangedSubview(chip)
+        }
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .horizontal)
+        head.addArrangedSubview(spacer)
+        let stampText: String
+        let stampColor: NSColor
+        if stale, let at = lastUsage?.at {
+            stampText = L("更新失敗 · \(agoText(-at.timeIntervalSinceNow))の値",
+                          "refresh failed · data \(agoText(-at.timeIntervalSinceNow))")
+            stampColor = Cat.peach
+        } else if usageFetching {
+            stampText = L("取得中…", "fetching…"); stampColor = Cat.overlay
+        } else if let at = lastUsage?.at, lastUsage?.error == nil {
+            stampText = L("\(agoText(-at.timeIntervalSinceNow))に取得", "fetched \(agoText(-at.timeIntervalSinceNow))")
+            stampColor = Cat.overlay
+        } else {
+            stampText = ""; stampColor = Cat.overlay
+        }
+        if !stampText.isEmpty {
+            let stamp = makeLabel(stampText, size: 10, weight: stale ? .semibold : .regular, color: stampColor)
+            stamp.setContentCompressionResistancePriority(.required, for: .horizontal)
+            head.addArrangedSubview(stamp)
+        }
+        let refresh = HoverButton(title: "")
+        refresh.isBordered = false
+        refresh.image = symbolImage("arrow.clockwise", size: 10, weight: .bold,
+                                    color: stale ? Cat.peach : Cat.subtext)
+        refresh.imagePosition = .imageOnly
+        refresh.wantsLayer = true
+        refresh.layer?.cornerRadius = 5
+        refresh.target = refresh; refresh.action = #selector(HoverButton.fire)
+        refresh.onPress = { [weak self] in self?.forceDashboardRefresh() }
+        refresh.setContentCompressionResistancePriority(.required, for: .horizontal)
+        NSLayoutConstraint.activate([
+            refresh.widthAnchor.constraint(equalToConstant: 20),
+            refresh.heightAnchor.constraint(equalToConstant: 18),
+        ])
+        head.addArrangedSubview(refresh)
+        box.addArrangedSubview(head)
+        head.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
 
-        if let usage = lastUsage, usage.error == nil, !usage.windows.isEmpty {
+        if let usage = lastUsage, !usage.windows.isEmpty {
+            let content = NSStackView()
+            content.orientation = .horizontal; content.spacing = 12; content.alignment = .top
+
+            let gauges = NSStackView()
+            gauges.orientation = .vertical; gauges.spacing = 5; gauges.alignment = .leading
             // Order: session, weekly, then any model-scoped windows.
             let order: (UsageWindow) -> Int = { $0.key == "session" ? 0 : $0.key == "weekly" ? 1 : 2 }
             for w in usage.windows.sorted(by: { order($0) < order($1) }) {
-                box.addArrangedSubview(usageGauge(w))
+                let row = usageGauge(w)
+                gauges.addArrangedSubview(row)
+                row.widthAnchor.constraint(equalTo: gauges.widthAnchor).isActive = true
             }
+            let divider = NSView()
+            divider.wantsLayer = true
+            divider.layer?.backgroundColor = Cat.surface1.withAlphaComponent(0.55).cgColor
+            divider.translatesAutoresizingMaskIntoConstraints = false
+            divider.widthAnchor.constraint(equalToConstant: 1).isActive = true
+
+            let credit = creditColumn(usage.credit)
+            credit.setContentHuggingPriority(.required, for: .horizontal)
+
+            content.addArrangedSubview(gauges)
+            content.addArrangedSubview(divider)
+            content.addArrangedSubview(credit)
+            NSLayoutConstraint.activate([
+                credit.widthAnchor.constraint(equalToConstant: min(190, innerWidth * 0.35)),
+                divider.heightAnchor.constraint(equalTo: content.heightAnchor),
+            ])
+            if stale { content.alphaValue = 0.55 }
+            box.addArrangedSubview(content)
+            content.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
         } else {
-            let msg = lastUsage?.error ?? L("読み込み中…", "loading…")
+            let msg = lastUsage?.error ?? usageError ?? L("読み込み中…", "loading…")
             box.addArrangedSubview(makeLabel(msg, size: 10.5, color: Cat.overlay))
         }
         box.widthAnchor.constraint(equalToConstant: width - 20).isActive = true
