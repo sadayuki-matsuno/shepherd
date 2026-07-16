@@ -1,31 +1,42 @@
 #!/bin/bash
-# dev/demo-director.sh <ja|en> — demo-board.sh の架空盤面を「動画用」に beat 進行で動かす。
+# dev/demo-director.sh <ja|en> [beat] — demo-board.sh の架空盤面を「動画用」に beat 進行で動かす。
 #
 # demo-board.sh が作る静的な盤面のうち checkout カード（OPUS/plan）だけを、beat ごとに
 # 書き換える: busy（全部緑）→ waiting+質問（オレンジに浮く）→ 回答済みで busy に復帰。
 # 盤面は FSEvents+デバウンスで ~0.3s 追従するので、ファイルを書くだけで状態遷移が演出できる。
 #
-# 【必ず単一ペインの zellij セッション内で実行する】 demo-board の sleep pid がこのペインの
-# ZELLIJ_SESSION_NAME を env に持つことで、HUD のポップオーバー回答が本物の送信経路
-# （zellij action write-chars → このペイン）で成功する。回答テキスト+Enter がこのスクリプトの
-# stdin に流れ込むのを beat 2 への自動進行として利用している（回答クリック＝カード復帰）。
-#
-#   zellij -s shepherd-demo          # ペインを増やさないこと（増えると送信が拒否される）
-#   ./dev/demo-director.sh ja        # → 印字された起動コマンドで Shepherd を起動 → 録画開始
+# 2つの使い方:
+#   A) 対話モード（引数1つ）— 人が録画しながら Enter/回答で進める。
+#      【必ず単一ペインの zellij セッション内で実行する】 demo-board の sleep pid がこのペインの
+#      ZELLIJ_SESSION_NAME を env に持つことで、HUD のポップオーバー回答が本物の送信経路
+#      （zellij action write-chars → このペイン）で成功する。回答テキスト+Enter がこのスクリプトの
+#      stdin に流れ込むのを beat 2 への自動進行として利用している（回答クリック＝カード復帰）。
+#        zellij -s shepherd-demo     # ペインを増やさないこと（増えると送信が拒否される）
+#        ./dev/demo-director.sh ja   # → 印字された起動コマンドで Shepherd を起動 → 録画開始
+#   B) beat 指定モード（引数2つ・非対話）— そのビートだけ書いて即終了する。`screencapture -v`
+#      と組み合わせたスクリプト録画（README の GIF 再生成）用。beat 0 だけは盤面のステージング
+#      込み、1/2 は既存フィクスチャ（beat 0 が採番した sid/pid）を書き換えるだけ。
+#        ./dev/demo-director.sh en 0   # ステージ + 全部緑 → Shepherd を起動して録画開始
+#        ./dev/demo-director.sh en 1   # 質問が浮く（録画中に外から叩く）
+#        ./dev/demo-director.sh en 2   # 回答済みで復帰
 #
 # 後片付け: pkill -f "sleep 86340"; rm -rf "${DEMO_BASE:-/tmp/shepherd-demo}"; 実 Shepherd を再起動。
 set -euo pipefail
 
 LANGSEL="${1:-en}"
+ONLY_BEAT="${2:-}"
 BASE="${DEMO_BASE:-/tmp/shepherd-demo}"
 SRC="$BASE/src"
 FIX="$BASE/$LANGSEL"
 
-if [ -z "${ZELLIJ:-}" ]; then
+if [ -z "$ONLY_BEAT" ] && [ -z "${ZELLIJ:-}" ]; then
   echo "⚠ zellij の外で実行しています。盤面の演出はできますが、ポップオーバーからの回答送信は失敗します。" >&2
 fi
 
-"$(dirname "$0")/demo-board.sh" "$LANGSEL"
+# beat 指定モードの 1/2 は既存フィクスチャ前提 — 再ステージすると sid/pid が採番し直しになる。
+if [ -z "$ONLY_BEAT" ] || [ "$ONLY_BEAT" = 0 ]; then
+  "$(dirname "$0")/demo-board.sh" "$LANGSEL"
+fi
 
 beat() { # <0|1|2> — checkout カードの registry+transcript を書き換える
   python3 - "$LANGSEL" "$FIX" "$SRC" "$1" <<'PYEOF'
@@ -96,6 +107,11 @@ with open(os.path.join(fix, "sessions", f"{pid}.json"), "w") as f:
 print(f"beat {beat}: checkout -> {status}")
 PYEOF
 }
+
+if [ -n "$ONLY_BEAT" ]; then
+  beat "$ONLY_BEAT"
+  exit 0
+fi
 
 beat 0
 echo
