@@ -289,8 +289,11 @@ extension AppDelegate {
     // blocks the 5s agent poll. Repaints when the snapshot changes. Stale-while-error: a failed
     // fetch must never replace good gauges (a sleep-wake network blip used to blank the whole
     // dashboard for a minute) — keep the old snapshot and stamp usageError instead.
+    // Runs even with the dashboard hidden: the header's credit-burn and quota-alert chips render
+    // from this data regardless of the toggle, and a hidden dashboard used to freeze them at
+    // whatever state the last visible fetch saw (review finding, 2026-07-17).
     func maybeRefreshUsage() {
-        guard showUsageDashboard, !usageFetching,
+        guard !usageFetching,
               Date().timeIntervalSince(usageFetchedAt) > 60 else { return }
         usageFetching = true
         DispatchQueue.global(qos: .utility).async {
@@ -300,6 +303,16 @@ extension AppDelegate {
                 self.usageFetchedAt = Date()
                 if let snap = snap {
                     if snap.error == nil {
+                        // Credit-burn state: compare this snapshot's spend.used against the last
+                        // one's (kept across failed fetches — an error snapshot must not reset the
+                        // baseline). The fake seam wins so captures don't flicker off on a fetch.
+                        if ProcessInfo.processInfo.environment["SHEPHERD_FAKE_CREDIT_BURN"] == nil {
+                            let anyWorking = (self.lastRows ?? []).contains { $0.status == "working" }
+                            self.creditBurn = creditBurnActive(prevUsedMinor: self.creditPrevUsedMinor,
+                                                               credit: snap.credit, windows: snap.windows,
+                                                               anyWorking: anyWorking)
+                        }
+                        if let used = snap.credit?.usedMinor { self.creditPrevUsedMinor = used }
                         self.lastUsage = snap
                         self.usageError = nil
                     } else {

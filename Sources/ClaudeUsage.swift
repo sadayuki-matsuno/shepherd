@@ -35,6 +35,24 @@ struct CreditInfo {
     let remainingText: String? // limit − used, when both parse in the same currency
     let percent: Double?       // 0–100 of the limit used
     let severity: String
+    let usedMinor: Double?     // `used` in minor units — numeric, so snapshots can be compared
+}
+
+// Is the account consuming extra-usage credits right now? Transcripts and the registry carry NO
+// per-session credit field (measured 2026-07-16: a session running on credits writes
+// records byte-identical to plan usage, and only the one that HIT the limit gets a 429 marker) —
+// so "on credits" is an account-level fact, shown on the dashboard's credit zone. Two signals:
+//   • spend.used grew since the previous snapshot — money moved, the direct proof, sufficient
+//     on its own
+//   • some limit window is exhausted (≥100%) while extra usage is enabled AND a session is
+//     actually working — the state in which that work bills to credits (covers the first fetch,
+//     where there's no delta yet). The anyWorking gate keeps a capped-but-idle board from
+//     breathing "burning" all night: an exhausted window persists until reset, spending doesn't.
+func creditBurnActive(prevUsedMinor: Double?, credit: CreditInfo?, windows: [UsageWindow],
+                      anyWorking: Bool) -> Bool {
+    guard let credit, credit.enabled else { return false }
+    if let prev = prevUsedMinor, let used = credit.usedMinor, used > prev { return true }
+    return anyWorking && windows.contains { $0.percent >= 100 }
 }
 
 struct UsageSnapshot {
@@ -164,7 +182,8 @@ func parseUsage(_ json: [String: Any]) -> UsageSnapshot {
             balanceText: moneyText(spend["balance"]),
             remainingText: remaining,
             percent: (spend["percent"] as? NSNumber)?.doubleValue,
-            severity: spend["severity"] as? String ?? "normal")
+            severity: spend["severity"] as? String ?? "normal",
+            usedMinor: used?.minor)
     }
     return UsageSnapshot(windows: windows, credit: credit, at: Date(), error: nil)
 }

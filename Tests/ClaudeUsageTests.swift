@@ -113,6 +113,49 @@ func runClaudeUsageTests() {
         expectNil(parseUsage(["limits": []]).credit)
     }
 
+    test("parseUsage: spend carries the numeric used amount for delta detection") {
+        let json: [String: Any] = [
+            "limits": [],
+            "spend": [
+                "used": ["amount_minor": 5659, "currency": "USD", "exponent": 2],
+                "enabled": true,
+            ],
+        ]
+        expectEq(parseUsage(json).credit?.usedMinor, 5659)
+        expectNil(parseUsage(["limits": [], "spend": ["used": NSNull(), "enabled": true]]).credit?.usedMinor,
+                  "null used → no numeric")
+    }
+
+    test("creditBurnActive: spend delta is the direct proof") {
+        let credit = CreditInfo(enabled: true, usedText: "$56.59", limitText: nil, balanceText: nil,
+                                remainingText: nil, percent: 28, severity: "normal", usedMinor: 5659)
+        let calm = [UsageWindow(key: "session", label: "5h", percent: 42, resetsAt: nil, severity: "normal")]
+        expect(creditBurnActive(prevUsedMinor: 5000, credit: credit, windows: calm, anyWorking: false),
+               "used grew since last snapshot → burning, even with no visible working row")
+        expect(!creditBurnActive(prevUsedMinor: 5659, credit: credit, windows: calm, anyWorking: true),
+               "used unchanged, windows calm → not burning")
+        expect(!creditBurnActive(prevUsedMinor: nil, credit: credit, windows: calm, anyWorking: true),
+               "no previous snapshot → delta can't fire")
+        expect(!creditBurnActive(prevUsedMinor: 6000, credit: credit, windows: calm, anyWorking: true),
+               "used went DOWN (monthly rollover) → not burning")
+    }
+
+    test("creditBurnActive: an exhausted window burns only while something works") {
+        let credit = CreditInfo(enabled: true, usedText: "$0.00", limitText: nil, balanceText: nil,
+                                remainingText: nil, percent: 0, severity: "normal", usedMinor: 0)
+        let capped = [UsageWindow(key: "session", label: "5h", percent: 100, resetsAt: nil, severity: "critical")]
+        expect(creditBurnActive(prevUsedMinor: 0, credit: credit, windows: capped, anyWorking: true),
+               "window exhausted + extra usage on + a working session → burning")
+        expect(!creditBurnActive(prevUsedMinor: 0, credit: credit, windows: capped, anyWorking: false),
+               "capped but idle board → not burning (a capped window persists until reset)")
+        let disabled = CreditInfo(enabled: false, usedText: "$0.00", limitText: nil, balanceText: nil,
+                                  remainingText: nil, percent: 0, severity: "normal", usedMinor: 0)
+        expect(!creditBurnActive(prevUsedMinor: 0, credit: disabled, windows: capped, anyWorking: true),
+               "extra usage off → nothing bills to credits even at 100%")
+        expect(!creditBurnActive(prevUsedMinor: 0, credit: nil, windows: capped, anyWorking: true),
+               "no spend block at all → false")
+    }
+
     test("moneyText: shapes and currencies") {
         expectEq(moneyText(["amount_minor": 540, "currency": "USD", "exponent": 2]), "$5.40")
         expectEq(moneyText(["amount_minor": 1200, "currency": "EUR", "exponent": 2]), "EUR 12.00",

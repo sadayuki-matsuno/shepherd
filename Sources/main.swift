@@ -72,6 +72,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NST
     // Last fetch's failure, kept SEPARATE from lastUsage: an error must not wipe the gauges
     // (stale-while-error — the old numbers stay up, dimmed, with a "更新失敗" stamp).
     var usageError: String?
+    // Extra-usage credits are being consumed RIGHT NOW (creditBurnActive over consecutive usage
+    // snapshots — see ClaudeUsage.swift for why this is account-level, not per-session). Drives the
+    // amber coin on every working card + the header chip. SHEPHERD_FAKE_CREDIT_BURN=1 pins it on
+    // for screenshots (same spirit as SHEPHERD_LATEST_TAG).
+    var creditBurn = ProcessInfo.processInfo.environment["SHEPHERD_FAKE_CREDIT_BURN"] != nil
+    var creditPrevUsedMinor: Double?
 
     // Layout: repos are always laid out as fixed-width masonry columns (v5fix3 #3 — the old
     // single-column row mode is gone). Columns are individually collapsible (state persisted per repo).
