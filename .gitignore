@@ -1,4 +1,7 @@
 build/
+build-linux/
+.build-linux/
+.build/
 Shepherd
 .DS_Store
 CLAUDE.local.md
