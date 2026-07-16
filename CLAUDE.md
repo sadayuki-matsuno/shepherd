@@ -93,12 +93,15 @@ Arch + Hyprland ユーザーからの要望対応（実現性調査は Artifact�
   - `waitExit(_:)`（Commands.swift）— `Process.waitUntilExit()` の代替（下記地雷参照）。ポータブルコードでは必ずこちらを使う。
   - `processEnvironments` は `#if canImport(Darwin)` で二本立て: mac は `ps -wwEp`、Linux は `/proc/<pid>/environ`（サブプロセス不要・値のスペースも保持・Apple プラットフォームバイナリ盲点も無し）。
   - syscall（kill/socket/errno）を使うファイルは `#if canImport(Glibc) import Glibc #endif`（Darwin は Foundation が再エクスポートするが Glibc はしない）。URLSession を使うファイルは `#if canImport(FoundationNetworking)`。Keychain は `#if canImport(Security)` で囲み、Linux は `~/.claude/.credentials.json` フォールバックがそのまま本線になる。
+- **Linux HUD（`linux/hud/main.swift`・swiftc 直）**: fetchAgents() 直結のボード（repo 列・状態レール・blocked 桃バナー＋質問プレビュー・idle 減光・モデル/ctx%/経過/±）を overlay に描く。リフレッシュは mac と同じ二段構え（`g_file_monitor_directory`=inotify＋0.2sデバウンス＋30sフォールバック）。ビルド `dev/linux/hud-build.sh`・検証 `dev/linux/hud-verify.sh`（ピクセル判定＋registry 書き換え→ライブ更新の cmp 判定）。**fetchAgents はコンテナで無改造で動いた**（daemon/gh/zellij は nil 縮退・/proc env で backend=.other 判定まで正常）。既知 TODO: 現状 rebuild が GTK メインスレッドで fetchAgents を同期実行しており、実機化には mac の地雷「rebuild 経路でメインスレッド同期サブプロセス禁止」と同じ分離（ワーカースレッド→`g_idle_add` 反映）が必要。
 - **layer-shell PoC**: `linux/poc-layershell/`（SwiftPM・systemLibrary は pkgConfig `gtk4-layer-shell-0`）。macOS の看板挙動との対応は `.nonactivatingPanel`→`KEYBOARD_MODE_NONE`、`.floating`→`LAYER_OVERLAY`、`orderFrontRegardless`→layer surface はフォーカス非依存。検証: `docker run --rm -v "$PWD":/work shepherd-linux-dev bash dev/linux/poc-verify.sh`（ヘッドレス sway → grim → #FF00FF ピクセル判定。GPU が無いので `WLR_RENDERER=pixman` と `GSK_RENDERER=cairo` 必須）。
 - **Linux 側の地雷**:
-  - **corelibs-foundation の `Process.waitUntilExit()` は Linux で永久にブロックする**（swift:noble 6.3.3 コンテナで実測 2026-07-16。`terminationHandler` は発火し `isRunning` も折れる — 壊れているのは blocking wait だけ）。→ `waitExit(_:)`（Darwin=本物 / Linux=isRunning ポーリング）を使う。
+  - **corelibs-foundation の `Process.waitUntilExit()` は Linux で永久にブロックする**（swift:noble 6.3.3 コンテナで実測 2026-07-16。`terminationHandler` は発火し `isRunning` も折れる — 壊れているのは blocking wait だけ）。upstream は swiftlang/swift#79881（Swift 6.x 回帰・arm64 Docker で報告。5.x/amd64 では未再現＝実機 Arch では起きない可能性あり）。→ 環境を問わず安全な `waitExit(_:)`（Darwin=本物 / Linux=isRunning ポーリング）を使う。
   - Glibc の `SOCK_STREAM` は enum（`__socket_type`）で Darwin の Int32 と型が違う。`timeval.tv_usec` も Int32(Darwin)/Int(Glibc) — `suseconds_t` で書く。
   - GTK の C マクロ（`GTK_WINDOW()` / `g_signal_connect()`）は Swift から見えない。ポインタの `assumingMemoryBound` と `g_signal_connect_data` + `@convention(c)` + `unsafeBitCast(…, to: GCallback.self)` で書く（PoC の main.swift が実例）。
   - コンテナに D-Bus は無い: `gtk_application_new` は `G_APPLICATION_NON_UNIQUE` で bus 登録を回避しないと `run()` が abort する。
+  - bin 解決（Config.swift）は Linux 候補パスを `#if os(Linux)` で追加済み（claude=`~/.local/bin`・`/usr/bin`、gh=`/usr/bin`）。**claudeBin が nil だと盤面が空になる**（終了済み bg 記録の唯一の源）ので、実機で「何も出ない」はまずここを疑う。
+  - gitFacts はコミットが1つも無い checkout では全部空になる（rev-parse に HEAD が混ざるため）。fixture は `--allow-empty` で1コミット入れる。
 
 ## 地雷リスト（この開発で踏んだもの全部）
 

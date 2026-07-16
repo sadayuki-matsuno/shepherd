@@ -7,7 +7,10 @@ import Glibc   // kill / SIGKILL (Darwin re-exports these through Foundation; Gl
 
 // corelibs-foundation's blocking Process.waitUntilExit() never returns on Linux (observed
 // 2026-07-16 in the swift:noble 6.3.3 container — terminationHandler fires and isRunning
-// flips, only the blocking wait hangs). Poll there; Darwin keeps the real wait.
+// flips, only the blocking wait hangs). Upstream: swiftlang/swift#79881 — a Swift 6.x
+// regression reported on arm64-in-Docker; polling is safe everywhere, so use it on all
+// of Linux rather than trusting the wait on untested arch/kernel combos.
+// Poll there; Darwin keeps the real wait.
 func waitExit(_ p: Process) {
     #if canImport(Darwin)
     p.waitUntilExit()
