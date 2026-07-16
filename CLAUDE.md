@@ -82,6 +82,28 @@ env -u HERDR_ENV -u HERDR_SOCKET_PATH -u HERDR_PANE_ID -u HERDR_TAB_ID -u HERDR_
 - 起動時に `HERDR_*` を落とすのは**惰性の安全策**（Shepherd はもう herdr を起動しない）。`runCommand` 内でも `HERDR_` プレフィックスの env を除去している。
 - SourceKit が `Cannot find type 'StreamDeck'` を出すのは単一ファイル解析のノイズ。`build.sh` が通れば無視してよい。
 
+## Linux 移植（進行中・2026-07-16 着手）
+
+Arch + Hyprland ユーザーからの要望対応（実現性調査は Artifact「Shepherd → Linux 移植 実現性メモ」）。**Arch 実機は不要** — layer-shell は wlroots 共通なので、Docker のヘッドレス sway で開発・機械検証する。
+
+- **検証環境**: `docker build -t shepherd-linux-dev dev/linux/`（swift:noble + sway + grim + **ソースビルドの gtk4-layer-shell** — Ubuntu noble のパッケージは GTK3 版しか無い）。非 root ユーザー `dev` で動く（sway が root 拒否。swift:noble は uid 1000 を `ubuntu` が先取りしているので `userdel` してから `useradd`）。
+- **ポータブルコア**: `Sources/` のうち **main.swift / AppDelegate+\* / Components.swift（AppKit 描画）/ StreamDeck.swift（IOKit）以外の全部**が Linux でそのままビルド・テストできる（2026-07-16 に全625 assertions パス）。実行: `docker run --rm -v "$PWD":/work shepherd-linux-dev bash dev/linux/core-test.sh`。**mac 側 `./test.sh` と両方緑を保つこと**。
+- **クロスプラットフォーム化の道具立て**（新規追加を最小化するため、既存名を保つ）:
+  - `HUDColor`（Models.swift）— macOS では `= NSColor` の typealias、Linux では r/g/b/a を持つだけの struct。ロジック層の色はすべてこれ。
+  - `waitExit(_:)`（Commands.swift）— `Process.waitUntilExit()` の代替（下記地雷参照）。ポータブルコードでは必ずこちらを使う。
+  - `processEnvironments` は `#if canImport(Darwin)` で二本立て: mac は `ps -wwEp`、Linux は `/proc/<pid>/environ`（サブプロセス不要・値のスペースも保持・Apple プラットフォームバイナリ盲点も無し）。
+  - syscall（kill/socket/errno）を使うファイルは `#if canImport(Glibc) import Glibc #endif`（Darwin は Foundation が再エクスポートするが Glibc はしない）。URLSession を使うファイルは `#if canImport(FoundationNetworking)`。Keychain は `#if canImport(Security)` で囲み、Linux は `~/.claude/.credentials.json` フォールバックがそのまま本線になる。
+- **Linux HUD（`linux/hud/main.swift`・swiftc 直）**: fetchAgents() 直結のボード（repo 列・状態レール・blocked 桃バナー＋質問プレビュー・idle 減光・モデル/ctx%/経過/±）を overlay に描く。リフレッシュは mac と同じ二段構え（`g_file_monitor_directory`=inotify＋0.2sデバウンス＋30sフォールバック）。ビルド `dev/linux/hud-build.sh`・検証 `dev/linux/hud-verify.sh`（ピクセル判定＋registry 書き換え→ライブ更新の cmp 判定）。**fetchAgents はコンテナで無改造で動いた**（daemon/gh/zellij は nil 縮退・/proc env で backend=.other 判定まで正常）。fetch はワーカースレッド（`DispatchQueue.global`）→ `g_idle_add` で UI 反映の二段構え（mac の地雷「rebuild 経路でメインスレッド同期サブプロセス禁止」の Linux 版対策・in-flight 中の要求は refreshPending 同様に1周追加へ合流）。**jump（カードクリック→セッションの端末ウィンドウへフォーカス）実装済み**: compositor を env で判定（`SWAYSOCK`→swaymsg / `HYPRLAND_INSTANCE_SIGNATURE`→hyprctl・**Hyprland 分岐は実機なしの UNVERIFIED**）、ウィンドウ pid 集合（`swaymsg -t get_tree` / `hyprctl clients -j`）へ processTable の ppid チェーンで遡って `[pid=N] focus` を発行。検証は `dev/linux/jump-verify.sh`（foot 2枚・`SHEPHERD_JUMP_SESSION` テストフックで click と同一関数を発火・get_tree の focused で判定）。**ポインタクリック自体（GtkGestureClick の発火）は headless に入力デバイスが無く未検証** — 実機確認項目。クリック時の jumpToSession はメインスレッドで swaymsg を同期実行（数十ms・将来はワーカーへ）。
+- **layer-shell PoC**: `linux/poc-layershell/`（SwiftPM・systemLibrary は pkgConfig `gtk4-layer-shell-0`）。macOS の看板挙動との対応は `.nonactivatingPanel`→`KEYBOARD_MODE_NONE`、`.floating`→`LAYER_OVERLAY`、`orderFrontRegardless`→layer surface はフォーカス非依存。検証: `docker run --rm -v "$PWD":/work shepherd-linux-dev bash dev/linux/poc-verify.sh`（ヘッドレス sway → grim → #FF00FF ピクセル判定。GPU が無いので `WLR_RENDERER=pixman` と `GSK_RENDERER=cairo` 必須）。
+- **Linux 側の地雷**:
+  - **corelibs-foundation の `Process.waitUntilExit()` は Linux で永久にブロックする**（swift:noble 6.3.3 コンテナで実測 2026-07-16。`terminationHandler` は発火し `isRunning` も折れる — 壊れているのは blocking wait だけ）。upstream は swiftlang/swift#79881（Swift 6.x 回帰・arm64 Docker で報告。5.x/amd64 では未再現＝実機 Arch では起きない可能性あり）。→ 環境を問わず安全な `waitExit(_:)`（Darwin=本物 / Linux=isRunning ポーリング）を使う。
+  - Glibc の `SOCK_STREAM` は enum（`__socket_type`）で Darwin の Int32 と型が違う。`timeval.tv_usec` も Int32(Darwin)/Int(Glibc) — `suseconds_t` で書く。
+  - GTK の C マクロ（`GTK_WINDOW()` / `g_signal_connect()`）は Swift から見えない。ポインタの `assumingMemoryBound` と `g_signal_connect_data` + `@convention(c)` + `unsafeBitCast(…, to: GCallback.self)` で書く（PoC の main.swift が実例）。**不完全型（GtkStyleProvider / GtkGesture / GtkEventController）は名前付き struct ではなく素の `OpaquePointer` として import される** — `assumingMemoryBound(to:)` しようとするとコンパイルエラー。ハンドラへの小さい値渡しは `UnsafeMutableRawPointer(bitPattern:)` で user_data に直接詰める。
+  - **`SWAYSOCK` は `WAYLAND_DISPLAY` と違って自動では手に入らない**（sway が spawn した子にしか継承されない）。検証スクリプトは `$XDG_RUNTIME_DIR/sway-ipc.*.sock` を glob して export する。
+  - コンテナに D-Bus は無い: `gtk_application_new` は `G_APPLICATION_NON_UNIQUE` で bus 登録を回避しないと `run()` が abort する。
+  - bin 解決（Config.swift）は Linux 候補パスを `#if os(Linux)` で追加済み（claude=`~/.local/bin`・`/usr/bin`、gh=`/usr/bin`）。**claudeBin が nil だと盤面が空になる**（終了済み bg 記録の唯一の源）ので、実機で「何も出ない」はまずここを疑う。
+  - gitFacts はコミットが1つも無い checkout では全部空になる（rev-parse に HEAD が混ざるため）。fixture は `--allow-empty` で1コミット入れる。
+
 ## 地雷リスト（この開発で踏んだもの全部）
 
 - **rebuild 経路でメインスレッド同期サブプロセスを走らせない**（2026-07-14 実測）。旧 `claudeAccount()` は5分キャッシュ切れのたび `claude auth status`（〜0.3s）を rebuild 内で同期実行し、全ビュー撤去直後だったため**空のパネルが約0.5秒画面に出て「HUD が閉じて開く」ように見えた**（フレームキャプチャで確証。ウィンドウ枠・バッファ監視には写らない）。対策は二重: ①facts 系は必ず stale-while-revalidate（prInfo と同型・`onAccountChanged`）②rebuild は**新ビューを全部構築してから旧ビューと入れ替える**（teardown-first に戻さないこと）。

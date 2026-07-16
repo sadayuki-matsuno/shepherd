@@ -13,7 +13,11 @@ let defaults = UserDefaults.standard
 
 let ghBin: String? = {
     if let p = defaults.string(forKey: "ghPath") { return p.isEmpty ? nil : p }
-    return firstExisting(["/opt/homebrew/bin/gh", "/usr/local/bin/gh"])
+    var candidates = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh"]
+    #if os(Linux)
+    candidates.append("/usr/bin/gh")   // apt / pacman install target
+    #endif
+    return firstExisting(candidates)
 }()
 
 let gitBin = "/usr/bin/git"
@@ -24,8 +28,15 @@ let gitBin = "/usr/bin/git"
 // the absolute path like herdr/gh do.
 let claudeBin: String? = {
     if let p = defaults.string(forKey: "claudePath") { return p.isEmpty ? nil : p }
-    return firstExisting(["/opt/homebrew/bin/claude", "/usr/local/bin/claude",
-                          (NSHomeDirectory() as NSString).appendingPathComponent(".claude/local/claude")])
+    var candidates = ["/opt/homebrew/bin/claude", "/usr/local/bin/claude",
+                      (NSHomeDirectory() as NSString).appendingPathComponent(".claude/local/claude")]
+    #if os(Linux)
+    // The native installer's target and the distro-package path — without these the whole
+    // board is empty on Linux (claudeAgentsList is the only source of finished bg records).
+    candidates += [(NSHomeDirectory() as NSString).appendingPathComponent(".local/bin/claude"),
+                   "/usr/bin/claude"]
+    #endif
+    return firstExisting(candidates)
 }()
 
 let ghqBin: String? = {

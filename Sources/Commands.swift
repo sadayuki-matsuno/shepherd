@@ -1,6 +1,23 @@
-import AppKit
+import Foundation
+#if canImport(Glibc)
+import Glibc   // kill / SIGKILL (Darwin re-exports these through Foundation; Glibc does not)
+#endif
 
 // MARK: - Subprocess helpers
+
+// corelibs-foundation's blocking Process.waitUntilExit() never returns on Linux (observed
+// 2026-07-16 in the swift:noble 6.3.3 container — terminationHandler fires and isRunning
+// flips, only the blocking wait hangs). Upstream: swiftlang/swift#79881 — a Swift 6.x
+// regression reported on arm64-in-Docker; polling is safe everywhere, so use it on all
+// of Linux rather than trusting the wait on untested arch/kernel combos.
+// Poll there; Darwin keeps the real wait.
+func waitExit(_ p: Process) {
+    #if canImport(Darwin)
+    p.waitUntilExit()
+    #else
+    while p.isRunning { usleep(5_000) }
+    #endif
+}
 
 func runCommand(_ args: [String], cwd: String? = nil, ignoreExit: Bool = false, extraEnv: [String: String] = [:],
                 timeout: TimeInterval = 10) -> String? {
@@ -40,7 +57,7 @@ func runCommand(_ args: [String], cwd: String? = nil, ignoreExit: Bool = false, 
         }
         return nil
     }
-    p.waitUntilExit()
+    waitExit(p)
     // `gh pr checks` exits non-zero when checks fail/pend but still prints JSON to stdout,
     // so callers that want that output pass ignoreExit.
     guard ignoreExit || p.terminationStatus == 0 else { return nil }
@@ -127,6 +144,7 @@ func processEnvironment(pid: Int32) -> [String: String] {
 // single pid it doesn't know, it prints NOTHING and exits 1 — one session that ended a moment ago
 // would otherwise cost us every other session's env (measured). A pid that dies inside this window
 // still empties the batch; the next refresh, a second later, has the survivors.
+#if canImport(Darwin)
 func processEnvironments(pids: [Int32]) -> [Int32: [String: String]] {
     let live = pids.filter { kill($0, 0) == 0 || errno != ESRCH }
     guard !live.isEmpty,
@@ -147,6 +165,28 @@ func processEnvironments(pids: [Int32]) -> [Int32: [String: String]] {
     }
     return result
 }
+#else
+// Linux: /proc/<pid>/environ IS the env block captured at exec — NUL-separated, values keep
+// their spaces, no subprocess at all (and unlike ps, no platform-binary blind spot). Readable
+// for same-uid processes; a dead pid has no file and a zombie's is empty, so both just drop out.
+func processEnvironments(pids: [Int32]) -> [Int32: [String: String]] {
+    var result: [Int32: [String: String]] = [:]
+    for pid in pids {
+        guard let data = FileManager.default.contents(atPath: "/proc/\(pid)/environ"),
+              !data.isEmpty else { continue }
+        var env: [String: String] = [:]
+        for entry in data.split(separator: 0) {
+            guard let s = String(data: Data(entry), encoding: .utf8),
+                  let eq = s.firstIndex(of: "="), eq != s.startIndex else { continue }
+            let key = String(s[..<eq])
+            guard key.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" }) else { continue }
+            env[key] = String(s[s.index(after: eq)...])
+        }
+        result[pid] = env
+    }
+    return result
+}
+#endif
 
 // The whole process table in one `ps` call: pid → (ppid, comm). Feeds zellijDescendant, which is
 // how a session carrying BOTH `TERM_PROGRAM=vscode` and leaked ZELLIJ_* vars gets told apart from
