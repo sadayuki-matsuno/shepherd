@@ -416,6 +416,9 @@ extension AppDelegate {
             // (The runtime chip moved to the title row as a leading glyph, 2026-07-15.)
             // 🅿 a live worker parked idle — holding memory, likely forgotten (see parkedChip).
             if let parked = parkedChip(row) { chips.addArrangedSubview(tinyChip(parked.label, color: parked.color, symbol: "parkingsign")) }
+            // (No per-card credit mark: credit consumption is an account-level fact — a session on
+            // credits writes nothing distinguishable to disk (measured 2026-07-16) — so it's shown
+            // as the dashboard credit zone's amber glow + a header chip, not per card.)
             inner.addArrangedSubview(chips)
             chips.widthAnchor.constraint(lessThanOrEqualToConstant: innerW).isActive = true
         }

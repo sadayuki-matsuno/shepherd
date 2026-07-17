@@ -72,6 +72,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NST
     // Last fetch's failure, kept SEPARATE from lastUsage: an error must not wipe the gauges
     // (stale-while-error — the old numbers stay up, dimmed, with a "更新失敗" stamp).
     var usageError: String?
+    // Extra-usage credits are being consumed RIGHT NOW (creditBurnActive over consecutive usage
+    // snapshots — see ClaudeUsage.swift for why this is account-level, not per-session). Drives the
+    // amber coin on every working card + the header chip. SHEPHERD_FAKE_CREDIT_BURN=1 pins it on
+    // for screenshots (same spirit as SHEPHERD_LATEST_TAG).
+    var creditBurn = ProcessInfo.processInfo.environment["SHEPHERD_FAKE_CREDIT_BURN"] != nil
+    var creditPrevUsedMinor: Double?
 
     // Layout: repos are always laid out as fixed-width masonry columns (v5fix3 #3 — the old
     // single-column row mode is gone). Columns are individually collapsible (state persisted per repo).
@@ -221,6 +227,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NST
 // domain — nothing persists) to stub the subprocess sources too. Used by dev/demo-board.sh.
 if let d = ProcessInfo.processInfo.environment["SHEPHERD_SESSIONS_DIR"] { claudeSessionsDir = d }
 if let d = ProcessInfo.processInfo.environment["SHEPHERD_PROJECTS_DIR"] { claudeProjectsDir = d }
+
+// Detach from wherever we were launched (classic daemon practice): a long-lived accessory app
+// must not keep depending on its inherited cwd. Launched from a git worktree that later gets
+// removed, every child process inherits the dead directory and dies at startup — `claude agents`
+// (Bun) with ENOENT, `git` with "Unable to read current working directory" — and the board
+// silently empties to rows=0 (2026-07-17, reproduced on-device).
+FileManager.default.changeCurrentDirectoryPath("/")
 
 // Single instance guard
 if let bundleId = Bundle.main.bundleIdentifier,

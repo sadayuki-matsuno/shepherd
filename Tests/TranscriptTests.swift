@@ -487,7 +487,7 @@ func runTranscriptTests() {
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let now = Date()
         // The lead's transcript carries an idle_notification user record every time a teammate
-        // ends a turn (party-game, 2026-07-14) — the only durable "this teammate is idle" fact.
+        // ends a turn (measured 2026-07-14) — the only durable "this teammate is idle" fact.
         func idleRecord(from: String, at: Date) -> String {
             let inner = #"{\"type\":\"idle_notification\",\"from\":\"\#(from)\",\"timestamp\":\"\#(iso.string(from: at))\",\"idleReason\":\"available\"}"#
             return #"{"type":"user","message":{"role":"user","content":"Another Claude session sent a message:\n<teammate-message teammate_id=\"\#(from)\" color=\"blue\">\n\#(inner)\n</teammate-message>\n\nThis came from another Claude session."}}"#
@@ -518,7 +518,7 @@ func runTranscriptTests() {
         write("agent-ccc.meta.json", "{}")   // no agentType, and no jsonl at all
         // Teammates (taskKind in_process_teammate): a text tail is NOT proof of being done — a
         // narration line ("now I'll write the file") followed by minutes of tool-call generation
-        // looks identical (party-game, 2026-07-14). The lead transcript's idle_notification is the
+        // looks identical (measured 2026-07-14). The lead transcript's idle_notification is the
         // authority: idle iff the newest notification is fresher than the teammate's jsonl.
         let teammateTail = [
             #"{"type":"user","message":{"content":[{"type":"tool_result","content":"ok"}]}}"#,
@@ -548,7 +548,7 @@ func runTranscriptTests() {
         write("agent-iii.jsonl", #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"sleep 999"}}]}}"#,
               mtime: now.addingTimeInterval(-7200))
         // jjj: a plain subagent whose FINAL record is bigger than 16KB (an Explore closing report —
-        // genome 2026-07-16 measured 17–25KB). A tail window smaller than the record starts
+        // measured 17–25KB, 2026-07-16). A tail window smaller than the record starts
         // mid-JSON, parses nothing, and stuck 4 finished agents "working" for 4.5h.
         let bigReport = #"# 調査報告\n"# + String(repeating: "x", count: 20_000)   // \n stays JSON-escaped
         write("agent-jjj.meta.json", #"{"agentType":"Explore","description":"個口表調査"}"#)

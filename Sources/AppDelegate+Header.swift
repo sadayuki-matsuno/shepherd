@@ -65,8 +65,9 @@ extension AppDelegate {
         statusRow.spacing = 6
         let header = statusRow   // the status pills below are added to this row
 
-        // 24h filter toggle (B5). Click flips between 24h-recency and all.
-        do {
+        // 24h filter toggle (B5). Click flips between 24h-recency and all. Minimized shows no
+        // board, so the filter would be a dead control there — the summary pills stand alone.
+        if !minimized {
             let on = timeFilter == .last24h
             let fchip = badge(on ? L("● 24時間以内 ▾", "● 24h ▾") : L("すべて表示 ▾", "all ▾"),
                               fg: on ? Cat.green : Cat.overlay,
@@ -94,6 +95,17 @@ extension AppDelegate {
             if blocked == 0 && working == 0 {
                 header.addArrangedSubview(pill(rows.isEmpty ? L("agent なし", "no agents") : L("すべて待機", "all idle"), color: Cat.overlay))
             }
+        }
+
+        // Extra-usage credits are burning right now (creditBurn): an amber chip in the pill row,
+        // clicking through to the usage panel. Shown regardless of the dashboard toggle — money
+        // moving is the one state that must never be discoverable-only.
+        if creditBurn {
+            let chip = badge(L("クレジット消費中", "on credits"), symbol: "dollarsign.circle.fill",
+                             symbolSize: 10, fg: Cat.amber, bg: Cat.amber.withAlphaComponent(0.16),
+                             tip: L("プラン上限超過中 — 稼働中セッションは追加クレジットに課金。クリックで使用量パネル",
+                                    "plan limit exhausted — working sessions bill to extra-usage credits. Click for the usage panel")) { [weak self] in self?.revealUsagePanel() }
+            header.addArrangedSubview(chip)
         }
 
         // A9: when a weekly quota window is over threshold, mirror it into the header pill row so
@@ -168,10 +180,11 @@ extension AppDelegate {
 
         // Both bars span the real board (boardWidth = N columns + gaps), not the legacy 320pt
         // contentWidth. The narrow width remains only for the minimized strip and the empty state.
+        // Minimized keeps the status row too (2026-07-17): the blocked/working summary is what lets
+        // the HUD stay useful as a strip — only the filter chip and ＋ are dropped above.
         let wide = !minimized && !(rows?.isEmpty ?? true)
         let width = wide ? boardSpanWidth : contentWidth - 24
         topBar.widthAnchor.constraint(equalToConstant: width).isActive = true
-        if minimized { return (topBar, nil) }
         header.widthAnchor.constraint(equalToConstant: width).isActive = true
         return (topBar, header)
     }
