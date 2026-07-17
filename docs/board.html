@@ -103,6 +103,52 @@
       <li><strong>更新バッジ</strong> — 1日1回、最新の GitHub Release と自分のバージョンを比較し、新しいものがあると teal の <span class="chip-demo" style="background:rgba(148,226,213,.16);color:var(--teal)">更新 vX.Y.Z</span> チップが表示されます。クリックでリリースページが開くので、<code>brew upgrade --cask shepherd</code> で更新してください。</li>
     </ul>
 
+    <h2 lang="en">The two sections</h2>
+    <h2 lang="ja">2つのセクション</h2>
+    <p lang="en">
+      Below the header the board splits into two collapsible sections, each behind a
+      <code>⌄ / ›</code> bar. <strong>SESSIONS</strong> holds the repository columns; folding it
+      moves the status summary — the needs-input / working pills, and the quota alert when one is
+      up — onto the bar itself, so nothing urgent goes dark while the board is tucked away.
+      <strong>ARTIFACTS</strong> is the shelf, described next. Both fold states persist.
+    </p>
+    <p lang="ja">
+      ヘッダーの下で盤面は <code>⌄ / ›</code> バー付きの2つの折りたたみセクションに分かれます。
+      <strong>セッション</strong>はリポジトリ列の本体で、畳むと状態サマリ —
+      応答待ち / 作業中のピルと、出ている場合はクォータ警告 — がバー上に移るので、
+      畳んでいる間も緊急な情報は消えません。<strong>ARTIFACTS</strong> は次で説明するシェルフです。
+      どちらの開閉状態も保存されます。
+    </p>
+
+    <h2 id="shelf" lang="en">The artifact shelf</h2>
+    <h2 lang="ja">Artifact シェルフ</h2>
+    <p lang="en">
+      The ARTIFACTS section is a persistent, account-wide list of your
+      <a href="https://claude.com/blog/artifacts-in-claude-code">Claude Artifacts</a> — the pages
+      your sessions publish. Cards only show an artifact while their session lives; the shelf is
+      where they stay findable afterwards.
+    </p>
+    <p lang="ja">
+      ARTIFACTS セクションは、あなたのアカウントの
+      <a href="https://claude.com/blog/artifacts-in-claude-code">Claude Artifact</a>
+      （セッションが公開するページ）の永続的な一覧です。カード上の Artifact バッジはセッションが
+      生きている間だけですが、シェルフはその後もずっと辿れる置き場になります。
+    </p>
+    <ul lang="en">
+      <li><strong>Each row</strong> — live dot (dimmed grey = deleted on claude.ai), the artifact's favicon, its title, the publishing repo, and the updated date (<code>yyyy/MM/dd</code>). Click to open in the browser; right-click to copy the URL or pin.</li>
+      <li><strong>Search &amp; filter</strong> — the search field matches titles and repo names as you type; the popup next to it filters to one repository (or the unattributed group).</li>
+      <li><strong>Pinning</strong> — right-click → <em>Pin to top</em> bookmarks an artifact: it wears a pin mark and sorts above everything else. Pins persist.</li>
+      <li><strong>Where the list comes from</strong> — two merged sources: the account's own artifact listing (covers other machines and claude.ai, but only returns the ~50 most recently updated) and an incremental scan of this machine's session transcripts (keeps everything ever published here, and adds the favicon + repo attribution). An artifact observed once never drops out of the shelf; older artifacts published on <em>other</em> machines are the one gap.</li>
+      <li><strong>Redeploy pulse</strong> — when a session republishes an artifact you may have open in a browser tab, its card's Artifact badge flashes amber: time to reload that tab.</li>
+    </ul>
+    <ul lang="ja">
+      <li><strong>各行</strong> — 生存ドット（灰色の減光 = claude.ai 上で削除済み）、Artifact の favicon、タイトル、公開元リポジトリ、更新日（<code>yyyy/MM/dd</code>）。クリックでブラウザで開き、右クリックで URL コピーやピン留めができます。</li>
+      <li><strong>検索とフィルター</strong> — 検索フィールドは入力しながらタイトルとリポジトリ名に一致し、隣のポップアップで1つのリポジトリ（または帰属不明グループ）に絞り込めます。</li>
+      <li><strong>ピン留め</strong> — 右クリック → <em>上位に固定</em>でブックマークになります: ピンマークが付き、常に最上位に並びます。ピンは保存されます。</li>
+      <li><strong>一覧の出どころ</strong> — 2つの源のマージです: アカウント自身の Artifact 一覧（他のマシンや claude.ai 分もカバーしますが、返るのは直近更新の約50件だけ）と、このマシンのセッション transcript の増分走査（ここで公開したものを全部保持し、favicon とリポジトリ帰属を補います）。一度シェルフに載った Artifact が消えることはありません。唯一の穴は<em>他の</em>マシンで公開された古い Artifact です。</li>
+      <li><strong>リデプロイパルス</strong> — ブラウザで開きっぱなしかもしれない Artifact をセッションが再公開すると、そのカードの Artifact バッジが琥珀色に点滅します: タブをリロードする合図です。</li>
+    </ul>
+
     <h2 lang="en">Card anatomy</h2>
     <h2 lang="ja">カードの解剖図</h2>
     <div class="anatomy" lang="en">

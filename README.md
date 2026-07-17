@@ -34,7 +34,7 @@ Shepherd sits in the corner of your screen and shows every Claude Code session o
 - **Zero deps** — plain Swift built with the Xcode Command Line Tools; no Xcode project, no packages
 
 <p align="center">
-  <img src="docs/assets/hud-en.png" width="760" alt="The Shepherd HUD: plan-usage bars in the header, then three repository columns — a blocked card showing its pending question in orange, working cards with permission-mode and model chips, PR/CI and Artifact badges, and a nested subagent card">
+  <img src="docs/assets/hud-en.png" width="760" alt="The Shepherd HUD: plan-usage bars in the header, a collapsible SESSIONS section with three repository columns — a blocked card showing its pending question in orange, working cards with model chips, Artifact badges and a nested subagent card — and a collapsible ARTIFACTS section with search, a repo filter and the artifact list">
 </p>
 
 ## Requirements
