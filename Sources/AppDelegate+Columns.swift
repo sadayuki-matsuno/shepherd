@@ -909,12 +909,12 @@ extension AppDelegate {
         // ran, and any main-thread stall in that window (a subprocess in claudeAccount, say) put
         // a blank HUD on screen for its duration (2026-07-14, caught by frame capture).
         let filtered = rows.map(applyFilter)
-        // Top-to-bottom: brand bar (logo + account + controls), then the plan-usage gauges, then the
-        // status row (24h filter + summary pills) sitting right on top of the board (2026-07-11).
+        // Top-to-bottom: brand bar (logo + account + controls), then the plan-usage gauges, then
+        // the two collapsible sections (experimental 2026-07-17): セッション (its bar, then the
+        // status row + columns when open) and ARTIFACTS (its bar, then search + inline list).
         let (brand, status) = headerView(rows: filtered)
         var views: [NSView] = [brand]
         if showUsageDashboard { views.append(usageDashboardView(width: boardSpanWidth)) }
-        if let status = status { views.append(status) }
 
         // Minimized: dashboard + header summary only — skip the whole body and hint line.
         // This wins over the fixed size modes: a mostly-empty fixed panel with one strip is noise.
@@ -931,16 +931,29 @@ extension AppDelegate {
             return
         }
 
-        if let rows = filtered, rows.isEmpty {
-            views.forEach { $0.layoutSubtreeIfNeeded() }
-            let headerHeight = views.reduce(0) { $0 + $1.fittingSize.height }
-                + stack.spacing * CGFloat(max(0, views.count - 1))
-            views.append(emptyStateView(headerHeight: headerHeight))
-        } else if let rows = filtered {
-            // Always lay repos out as fixed-width masonry columns (v5fix3 #3 — the single-column row
-            // mode is gone). Groups pack into the shortest column; pinned groups keep a stable slot.
-            views.append(columnsView(groupByRepo(rows)))
+        // Built ahead of the sessions body so the empty-state height math below can count it —
+        // measuring only what precedes the empty state pushed the ARTIFACTS section below the
+        // fold in the fixed size modes.
+        let artifactViews = artifactsSectionViews()
+        views.append(sessionsSectionBar(rows: filtered))
+        if sessionsSectionCollapsed {
+            // Folded: the bar carries the summary; the board (and its status row) stays out.
+        } else {
+            if let status = status { views.append(status) }
+            if let rows = filtered, rows.isEmpty {
+                (views + artifactViews).forEach { $0.layoutSubtreeIfNeeded() }
+                let chrome = views + artifactViews
+                let headerHeight = chrome.reduce(0) { $0 + $1.fittingSize.height }
+                    + stack.spacing * CGFloat(max(0, chrome.count - 1))
+                views.append(emptyStateView(headerHeight: headerHeight))
+            } else if let rows = filtered {
+                // Always lay repos out as fixed-width masonry columns (v5fix3 #3 — the single-column
+                // row mode is gone). Groups pack into the shortest column; pinned groups keep a
+                // stable slot.
+                views.append(columnsView(groupByRepo(rows)))
+            }
         }
+        views.append(contentsOf: artifactViews)
         // Remember which sessions we've shown (new ones fade in next time) and their rendered state
         // (a change animates the rail colour) — B4. Updated after the body is built.
         if let rows = filtered {

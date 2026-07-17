@@ -137,7 +137,8 @@ S = [
          prompt=T("通知メールが二重に届くことがある。原因を調査して", "Notification emails sometimes arrive twice — find out why"),
          artifacts=[dict(favicon="🗺",
                          desc=T("配送経路の見取り図", "Delivery-path map"),
-                         url="https://claude.ai/code/artifact/cccc1111-2222-3333-4444-555566667777"),
+                         url="https://claude.ai/code/artifact/cccc1111-2222-3333-4444-555566667777",
+                         redeploy=True),
                     dict(favicon="🧪",
                          desc=T("再現手順ノート", "Repro-steps note"),
                          url="https://claude.ai/code/artifact/bbbb1111-2222-3333-4444-555566667777"),
@@ -179,14 +180,20 @@ for i, s in enumerate(S):
         {"type": "ai-title", "aiTitle": s["title"]},
     ]
     for ai, a in enumerate(s.get("artifacts", [])):
-        lines += [
+        # timestamp + cwd on the tool_result line feed the artifact shelf's index (updated stamp
+        # + repo attribution). A second publish of the same URL is the redeploy fixture (P4).
+        publish = [
             dict(type="assistant", message=dict(role="assistant", content=[
                 dict(type="tool_use", name="Artifact", id=f"toolu_art{ai}",
                      input=dict(file_path=f"report{ai}.html", favicon=a["favicon"], description=a["desc"]))])),
-            dict(type="user", message=dict(role="user", content=[
+            dict(type="user", timestamp="2026-07-11T09:05:00.000Z", cwd=s["cwd"],
+                 message=dict(role="user", content=[
                 dict(type="tool_result", tool_use_id=f"toolu_art{ai}",
                      content=f"Published report{ai}.html at {a['url']}")])),
         ]
+        lines += publish
+        if a.get("redeploy"):
+            lines += json.loads(json.dumps(publish).replace(f"toolu_art{ai}", f"toolu_art{ai}r"))
     if "question" in s:
         # The card's one-line "? …" preview reads the latest assistant TEXT, so say the question
         # in prose first — the tool_use record follows, like a real session.

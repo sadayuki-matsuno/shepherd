@@ -116,6 +116,79 @@ func toolResultText(_ content: Any?) -> String {
     return ""
 }
 
+// One Artifact-tool publish observed in a transcript: the tool_use input's favicon/description
+// paired (via tool_use_id) with its "Published … at <url>" tool_result. `timestamp` / `cwd` are the
+// tool_result line's own fields — the publish time and the session's working directory, which the
+// shelf index needs and no other source carries (the sanitized project dir name is lossy).
+struct ArtifactPublish: Equatable {
+    let url: String
+    var favicon: String? = nil
+    var title: String? = nil
+    var timestamp: String? = nil
+    var cwd: String? = nil
+}
+
+// A pending Artifact tool_use's input, keyed by tool_use_id until its result arrives. Codable so
+// the shelf's incremental scanner can persist unconsumed entries across scan boundaries — a
+// publish whose tool_use lands in one scan and whose tool_result lands in the next would
+// otherwise never pair, and the index (unlike the card, which has the prose fallback) would
+// silently miss it (caught by the partial-tail unit test, 2026-07-17).
+struct ArtifactToolUseMeta: Codable, Equatable {
+    var favicon: String?
+    var title: String?
+}
+
+// Artifact publishes in ONE transcript slice — the tool_use/tool_result pairing shared by the
+// card's link extractor (linksFromTranscriptSlice) and the shelf's index scanner (ArtifactIndex).
+// `carry` holds tool_use inputs still awaiting their result: seeded from the previous scan's
+// leftovers, consumed as results pair up, handed back with this slice's new pending entries.
+//
+// The pairing is the trust anchor: the tool's acknowledgement is "Published <path> at <url>", but
+// the shape alone isn't proof — Shepherd's own test fixtures contain that literal line, and
+// sed/Read-ing them put a fake link on the card (2026-07-08). So a tool_result counts ONLY when it
+// pairs (via tool_use_id) with an Artifact tool_use seen in this slice or carried from an earlier
+// one. Verified in real transcripts: the tool_use (with input.favicon / input.description) always
+// precedes its tool_result in file order.
+func artifactPublishesFromSlice(_ text: String) -> [ArtifactPublish] {
+    var carry: [String: ArtifactToolUseMeta] = [:]
+    return artifactPublishesFromSlice(text, carry: &carry)
+}
+
+func artifactPublishesFromSlice(_ text: String, carry: inout [String: ArtifactToolUseMeta]) -> [ArtifactPublish] {
+    var out: [ArtifactPublish] = []
+    for line in text.split(separator: "\n") {
+        guard let data = line.data(using: .utf8),
+              let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let type = obj["type"] as? String,
+              let msg = obj["message"] as? [String: Any],
+              let content = msg["content"] as? [[String: Any]] else { continue }
+        if type == "assistant" {
+            for block in content where (block["type"] as? String) == "tool_use" {
+                guard (block["name"] as? String) == "Artifact",
+                      let id = block["id"] as? String, let input = block["input"] as? [String: Any] else { continue }
+                let fav = (input["favicon"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let desc = (input["description"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                carry[id] = ArtifactToolUseMeta(favicon: fav?.isEmpty == false ? fav : nil,
+                                                title: desc?.isEmpty == false ? desc : nil)
+            }
+        } else if type == "user" {
+            for block in content where (block["type"] as? String) == "tool_result" {
+                guard let id = block["tool_use_id"] as? String, let meta = carry[id] else { continue }
+                for url in allMatchStrings("Published .*? at (https?://\\S+)", in: toolResultText(block["content"])) {
+                    guard let u = validHTTPURL(url) else { continue }
+                    out.append(ArtifactPublish(url: u.absoluteString, favicon: meta.favicon, title: meta.title,
+                                               timestamp: obj["timestamp"] as? String,
+                                               cwd: obj["cwd"] as? String))
+                }
+                carry[id] = nil   // one result per tool_use — consumed, keeping the carry tiny
+            }
+        }
+    }
+    // A tool_use whose result never comes (a killed turn) would otherwise pin its entry forever.
+    if carry.count > 64 { carry.removeAll() }
+    return out
+}
+
 // Deliverable URLs from ONE transcript slice, parsed as line-delimited JSON so we only look at
 // text the agent itself produced — never at URLs it was merely shown. Two sources qualify:
 //   • assistant message text blocks (the agent's own output — where it pastes a PR/Artifact URL)
@@ -125,73 +198,49 @@ func toolResultText(_ content: Any?) -> String {
 // merely echo a URL the agent was asked to read — is skipped. This is the §2 fix: the old raw
 // regex over the whole slice flagged a parent's Artifact URL as the *child's* deliverable just
 // because the child was made to read it.
-func linksFromTranscriptSlice(_ text: String) -> [AgentLink] {
+//
+// NOTE: HERD_PR / HERD_ARTIFACT markers in a tool_result are deliberately NOT trusted. A
+// tool_result is text the agent merely READ, and a file that happens to carry the markers
+// (Shepherd's own test fixtures, docs) would put a 404 Artifact link on the card. Markers count
+// only in the agent's own assistant text. Tool-paired publishes come from
+// artifactPublishesFromSlice above; a pairing missed across a delta-scan boundary costs just
+// favicon/title — the agent announces the URL in prose too, which the assistant-text path absorbs.
+//
+// `publishes` lets a caller that already extracted the slice's publishes (extractLinksFromTranscript
+// needs them for the redeploy pulse too) hand them in, so the slice's JSON is parsed once, not
+// two/three times — this runs in the refresh pipeline on a slice of up to 4MB per new session.
+func linksFromTranscriptSlice(_ text: String, publishes: [ArtifactPublish]? = nil) -> [AgentLink] {
     var links: [AgentLink] = []
-    // Artifact tool_use inputs, keyed by tool_use_id: the favicon (emoji) + description we pair with
-    // the "Published … at <url>" tool_result the tool emits (A1). Verified in real transcripts: the
-    // tool_use (with input.favicon / input.description) always precedes its tool_result in file order.
-    var artifactMeta: [String: (favicon: String?, title: String?)] = [:]
     func absorb(_ s: String) {
         guard !s.isEmpty else { return }
         for link in linksFromText(s) where !links.contains(where: { $0.url == link.url }) { links.append(link) }
     }
-    // Upsert an Artifact link with its favicon/title. Redeploys reuse the same URL (same file_path),
-    // so a later publish's favicon/title overrides the earlier one for that URL.
-    func absorbArtifact(url: String, favicon: String?, title: String?) {
-        guard let u = validHTTPURL(url) else { return }
-        let abs = u.absoluteString
-        if let i = links.firstIndex(where: { $0.url == abs }) {
-            links[i] = AgentLink(label: "Artifact", url: abs, favicon: favicon ?? links[i].favicon, title: title ?? links[i].title)
-        } else {
-            links.append(AgentLink(label: "Artifact", url: abs, favicon: favicon, title: title))
-        }
-    }
     for line in text.split(separator: "\n") {
         guard let data = line.data(using: .utf8),
               let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let type = obj["type"] as? String,
+              (obj["type"] as? String) == "assistant",
               let msg = obj["message"] as? [String: Any],
               let content = msg["content"] as? [[String: Any]] else { continue }
-        if type == "assistant" {
-            for block in content {
-                let bt = block["type"] as? String
-                if bt == "text" {
-                    if let t = block["text"] as? String {
-                        // Fenced ``` blocks are QUOTED material (fixtures, docs, examples), not the
-                        // agent reporting its own deliverable — an agent explaining this extractor
-                        // quoted a fixture marker and put a fake 404 link on its own card
-                        // (2026-07-08). Splitting on ``` leaves prose at even indices; odd indices
-                        // (inside a fence, incl. after an unclosed opener) are dropped.
-                        let prose = t.components(separatedBy: "```").enumerated()
-                            .filter { $0.offset % 2 == 0 }.map { $0.element }.joined(separator: "\n")
-                        absorb(prose)
-                    }
-                } else if bt == "tool_use", (block["name"] as? String) == "Artifact",
-                          let id = block["id"] as? String, let input = block["input"] as? [String: Any] {
-                    let fav = (input["favicon"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let desc = (input["description"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-                    artifactMeta[id] = (fav?.isEmpty == false ? fav : nil, desc?.isEmpty == false ? desc : nil)
-                }
-            }
-        } else if type == "user" {
-            for block in content where (block["type"] as? String) == "tool_result" {
-                let s = toolResultText(block["content"])
-                let id = block["tool_use_id"] as? String
-                // NOTE: HERD_PR / HERD_ARTIFACT markers in a tool_result are deliberately NOT
-                // trusted. A tool_result is text the agent merely READ, and a file that happens to
-                // carry the markers (Shepherd's own test fixtures, docs) would put a 404 Artifact
-                // link on the card. Markers count only in the agent's own assistant text.
-                // The Artifact tool's own acknowledgement is "Published <path> at <url>" — but the
-                // shape alone isn't proof: Shepherd's own test fixtures contain that literal line,
-                // and sed/Read-ing them put a fake link on the card (2026-07-08). So it counts ONLY
-                // when the result pairs (via tool_use_id) with an Artifact tool_use seen in this
-                // slice. A pairing missed across a delta-scan boundary costs just favicon/title:
-                // the agent announces the URL in prose too, which the assistant-text path absorbs.
-                guard let id = id, let meta = artifactMeta[id] else { continue }
-                for url in allMatchStrings("Published .*? at (https?://\\S+)", in: s) {
-                    absorbArtifact(url: url, favicon: meta.favicon, title: meta.title)
-                }
-            }
+        for block in content where (block["type"] as? String) == "text" {
+            guard let t = block["text"] as? String else { continue }
+            // Fenced ``` blocks are QUOTED material (fixtures, docs, examples), not the
+            // agent reporting its own deliverable — an agent explaining this extractor
+            // quoted a fixture marker and put a fake 404 link on its own card
+            // (2026-07-08). Splitting on ``` leaves prose at even indices; odd indices
+            // (inside a fence, incl. after an unclosed opener) are dropped.
+            let prose = t.components(separatedBy: "```").enumerated()
+                .filter { $0.offset % 2 == 0 }.map { $0.element }.joined(separator: "\n")
+            absorb(prose)
+        }
+    }
+    // Upsert each Artifact publish with its favicon/title. Redeploys reuse the same URL (same
+    // file_path), so a later publish's favicon/title overrides the earlier one for that URL.
+    for p in publishes ?? artifactPublishesFromSlice(text) {
+        if let i = links.firstIndex(where: { $0.url == p.url }) {
+            links[i] = AgentLink(label: "Artifact", url: p.url,
+                                 favicon: p.favicon ?? links[i].favicon, title: p.title ?? links[i].title)
+        } else {
+            links.append(AgentLink(label: "Artifact", url: p.url, favicon: p.favicon, title: p.title))
         }
     }
     return links
@@ -226,8 +275,21 @@ func extractLinksFromTranscript(cwd: String, sessionId: String) -> [AgentLink] {
         return cached?.links ?? []
     }
     let text = String(decoding: data, as: UTF8.self)
+    // Parsed once, consumed twice (the link upsert below and the pulse check) — see
+    // linksFromTranscriptSlice's `publishes` parameter.
+    let publishes = artifactPublishesFromSlice(text)
+    // Redeploy pulse (P4): a tool publish in a DELTA slice whose URL the session already carried is
+    // a re-publish of the same Artifact (redeploys reuse the URL) — stamp it so the card's badge can
+    // glow briefly. Only true tool publishes count (a prose re-mention isn't a deploy), and only
+    // delta scans (cached != nil): the first full-tail scan would read history as "just republished".
+    if let cached = cached, !cached.links.isEmpty,
+       publishes.contains(where: { p in cached.links.contains { $0.url == p.url } }) {
+        factsLock.lock()
+        artifactPulseAt[sessionId] = Date()
+        factsLock.unlock()
+    }
     var merged = cached?.links ?? []
-    for link in linksFromTranscriptSlice(text) {
+    for link in linksFromTranscriptSlice(text, publishes: publishes) {
         if let i = merged.firstIndex(where: { $0.url == link.url }) {
             // A later slice may carry the favicon/title (A1) for a URL first seen bare — enrich it.
             if merged[i].favicon == nil, link.favicon != nil { merged[i].favicon = link.favicon }

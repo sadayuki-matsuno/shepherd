@@ -17,7 +17,7 @@ import Security
 
 // MARK: - App
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate, NSSearchFieldDelegate {
     var panel: NSPanel!
     var stack: NSStackView!
     // 縦スクロール土台（HUDサイズ 2026-07-08）。stack は常にこの scrollView の documentView 内に住み、
@@ -185,6 +185,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NST
     var expandedRecordLanes: Set<String> = Set(defaults.stringArray(forKey: "expandedRecordLanes") ?? [])
     var familyPeekPopover: NSPopover?
     var familyPeekCloseWork: DispatchWorkItem?
+    // Artifact シェルフ（2026-07-17）: 盤面の ARTIFACTS セクション（下記・実験UI）が唯一の面。
+    var artifactAPIFetchedAt = Date.distantPast   // 15分ガード（セクションが開いている時だけ取得）
+    var artifactAPIFetching = false
+    var artifactAPIError: String?             // stale-while-error: 失敗してもインデックスは残す
+    var artifactScanRunning = false           // 源B の増分走査（低優先バックグラウンド）
+    // 盤面2セクション（2026-07-17 採用）: 「セッション」「ARTIFACTS」それぞれ折りたたみバー
+    // を持つ。セッションバーは畳むと状態サマリ（応答待ちN/作業中N＋クォータ警告）がバー上に
+    // 出る。ARTIFACTS はインライン一覧＋検索＋repoフィルター＋ピン留め（上位固定）。
+    var sessionsSectionCollapsed = defaults.bool(forKey: "sessionsCollapsed")
+    var artifactsBarCollapsed = defaults.bool(forKey: "artifactsBarCollapsed")
+    var artifactPins: [String] = defaults.stringArray(forKey: "artifactPins") ?? []
+    var artifactQuery = ""                     // インライン一覧の検索語（プロセス内のみ・永続しない）
+    var artifactRepoFilter: String?            // 簡易フィルター: nil=すべて / ""=帰属不明 / repo名
+    var lastArtifactTypeAt = Date.distantPast  // 検索の最終キー入力。直後2秒だけ rebuild を保留
+                                               // （currentEditor ベースだとフォーカスが残る限り
+                                               // 盤面更新が無期限に止まり得る — レビュー指摘）
+    weak var artifactSearchField: NSSearchField?
+    weak var artifactListStack: NSStackView?   // 検索・取得完了時に中身だけ差し替える
+    var artifactScanAt = Date.distantPast      // インライン枠の走査トリガー（5分ガード）
     // Hover tooltip popover (2026-07-15): anchored at the hovered control — the bottom hint line
     // proved invisible in practice for per-element details (glyph hover). Transient; closed on
     // hover-exit and defensively at every rebuild.
