@@ -391,6 +391,14 @@ extension AppDelegate {
     }
 
     func controlTextDidChange(_ obj: Notification) {
+        // The inline ARTIFACTS section's search field: filter the list in place (a rebuild would
+        // recreate the field and drop focus mid-word).
+        if let field = obj.object as? NSSearchField, field === artifactSearchField {
+            artifactQuery = field.stringValue
+            lastArtifactTypeAt = Date()   // hold rebuilds off briefly (same shape as the drag guard)
+            renderArtifactList()
+            return
+        }
         guard (obj.object as? NSTextField) === repoPickerSearch else { return }
         let q = (repoPickerSearch?.stringValue ?? "").lowercased()
         repoPickerFiltered = q.isEmpty ? repoPickerAll : repoPickerAll.filter { $0.title.lowercased().contains(q) }

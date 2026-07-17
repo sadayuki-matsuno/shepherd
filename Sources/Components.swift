@@ -441,6 +441,15 @@ final class DragScrollView: NSScrollView {
     override var mouseDownCanMoveWindow: Bool { true }
 }
 
+// A borderless window can never become key by default, which silently kills every text field on
+// the HUD (the inline artifact search took clicks but no keystrokes — 2026-07-17). Allowing key
+// here is gated by the panel's becomesKeyOnlyIfNeeded=true: it becomes key only when a view that
+// needs the keyboard (a text field) is clicked, so plain card clicks still never steal focus,
+// and the app itself stays non-activating either way.
+final class KeyablePanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+}
+
 final class FlippedView: NSView {
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { true }

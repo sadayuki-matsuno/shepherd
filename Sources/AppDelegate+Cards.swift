@@ -682,6 +682,23 @@ extension AppDelegate {
         var out: [NSView] = []
         // (The PR badge left the card face on 2026-07-15 — rarely clicked from here; it lives on
         // the right-click menu now, CI state and all. buildCardMenu carries it.)
+        // Redeploy pulse (P4): a re-publish to a URL this session already carried was just seen
+        // (artifactPulseAt, stamped by the delta scan) — the badge turns amber and blinks a few
+        // times, then the next rebuild past the window paints it blue again. Same visual family
+        // as the uncommitted dog-ear; deliberately NOT a standing animation.
+        factsLock.lock()
+        let pulsedAt = artifactPulseAt[row.sessionId]
+        factsLock.unlock()
+        let pulsing = pulsedAt.map { Date().timeIntervalSince($0) < 8 } ?? false
+        let fg = pulsing ? Cat.amber : Cat.blue
+        func pulse(_ v: NSView) -> NSView {
+            guard pulsing else { return v }
+            let anim = CABasicAnimation(keyPath: "opacity")
+            anim.fromValue = 0.35; anim.toValue = 1
+            anim.duration = 0.5; anim.autoreverses = true; anim.repeatCount = 3
+            v.layer?.add(anim, forKey: "artifactPulse")
+            return v
+        }
         // "<favicon> <title-prefix> ↗" for one Artifact.
         func artifactBadge(_ link: AgentLink) -> NSView {
             // A session-chosen favicon emoji is that artifact's identity — keep it. Only the
@@ -689,7 +706,7 @@ extension AppDelegate {
             let title = link.title.map { String($0.prefix(18)) } ?? "Artifact"
             let text = link.favicon.map { "\($0) \(title) ↗" } ?? "\(title) ↗"
             return badge(text, symbol: link.favicon == nil ? "doc.text" : nil,
-                         fg: Cat.blue, bg: Cat.blue.withAlphaComponent(0.2),
+                         fg: fg, bg: fg.withAlphaComponent(0.2),
                          tip: (link.title ?? "Artifact") + "\n" + link.url) {
                 if let u = URL(string: link.url) { NSWorkspace.shared.open(u) }
             }
@@ -698,15 +715,15 @@ extension AppDelegate {
         // become "newest-title（他+N）" and clicking picks from the full list.
         let artifacts = row.links.filter { $0.label == "Artifact" }
         if artifacts.count == 1 {
-            out.append(artifactBadge(artifacts[0]))
+            out.append(pulse(artifactBadge(artifacts[0])))
         } else if artifacts.count >= 2, let latest = artifacts.last {
             let text = artifactBadgeText(title: latest.title, favicon: latest.favicon, count: artifacts.count)
             let chip = badge(text, symbol: latest.favicon == nil ? "doc.on.doc" : nil,
-                             fg: Cat.blue, bg: Cat.blue.withAlphaComponent(0.2),
+                             fg: fg, bg: fg.withAlphaComponent(0.2),
                              tip: L("クリックで \(artifacts.count) 件から選んで開く",
                                     "click to pick one of \(artifacts.count) artifacts")) {}
             chip.onClick = { [weak self, weak chip] in if let c = chip { self?.showLinksMenu(artifacts, from: c) } }
-            out.append(chip)
+            out.append(pulse(chip))
         }
         return out
     }

@@ -59,11 +59,14 @@ extension AppDelegate {
         // to stderr and exits — used for fixture-driven testing since the HUD can't be inspected
         // programmatically (nonactivating accessory panel). No GUI is built in this mode.
         if ProcessInfo.processInfo.environment["SHEPHERD_DUMP"] != nil { dumpAndExit() }
+        // Headless frames-endpoint probe (P0): measures header requirements + response shape via
+        // the app's own token path — the token never leaves the process (ArtifactIndex.swift).
+        if ProcessInfo.processInfo.environment["SHEPHERD_ARTIFACT_PROBE"] != nil { artifactProbeAndExit() }
 
         let rect = NSRect(x: 0, y: 0, width: contentWidth, height: 100)
-        panel = NSPanel(contentRect: rect,
-                        styleMask: [.borderless, .nonactivatingPanel],
-                        backing: .buffered, defer: false)
+        panel = KeyablePanel(contentRect: rect,
+                             styleMask: [.borderless, .nonactivatingPanel],
+                             backing: .buffered, defer: false)
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isMovableByWindowBackground = true
@@ -153,6 +156,7 @@ extension AppDelegate {
             self?.refresh()
         }
         refresh()
+
     }
 
     // Fixture-driven self-check (see SHEPHERD_DUMP above).
@@ -169,6 +173,16 @@ extension AppDelegate {
             for l in r.links { w("    link \(l.label): \(l.favicon ?? "") \(l.title.map { String($0.prefix(40)) } ?? "-") | \(l.url)") }
             if let lm = r.lastMessage { w("    last=\(lm.prefix(70))") }
             for a in r.subagents { w("    subagent \(a.type) [\(a.working ? "working" : "idle")]\(a.name.map { " \($0)" } ?? "")") }
+        }
+        // Artifact shelf index — transcript source only, scanned synchronously, so a fixture run
+        // is deterministic (the API source needs a token and live network; fixture mode redirects
+        // the index file to scratch — see ArtifactIndex.indexPath).
+        ArtifactIndex.shared.scanTranscripts(projectsDir: claudeProjectsDir)
+        let artifacts = ArtifactIndex.shared.snapshot()
+            .sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
+        w("ARTIFACTS \(artifacts.count)")
+        for a in artifacts {
+            w("  \(a.softDeleted ? "×" : "·") \(a.favicon ?? "-") \(a.title ?? String(a.slug.prefix(8))) | repo=\(a.repoName ?? "-") slug=\(a.slug.prefix(8)) api=\(a.lastSeenInAPI != nil)")
         }
         // Tree view: repo grouping + child-session nesting exactly as the HUD lays it out.
         w("TREE")
@@ -247,8 +261,12 @@ extension AppDelegate {
                 self.updateReplyWaiting(rows: rows)
                 // Pause the row rebuild while a popover is open or a file drag is in progress
                 // — recreating the rows would destroy the anchor / drop-target views.
+                // The artifact-search hold is TIME-based (2s past the last keystroke), not
+                // currentEditor(): a field that keeps the field editor while the user works
+                // elsewhere would suppress rebuilds — and every board update — indefinitely.
                 if self.replyPopover == nil && self.repoPickerPopover == nil && self.dropPopover == nil
                     && self.helpPopover == nil
+                    && Date().timeIntervalSince(self.lastArtifactTypeAt) > 2.0
                     && Date().timeIntervalSince(self.lastDragAt) > 1.0 {
                     self.rebuild(rows: rows)
                 }
@@ -259,6 +277,12 @@ extension AppDelegate {
         }
         maybeRefreshUsage()
         maybeCheckForUpdate()
+        // The inline ARTIFACTS section keeps itself fresh while open (15-min API guard, 5-min
+        // scan guard — both no-ops most refreshes; nothing runs synchronously here).
+        if !artifactsBarCollapsed && !minimized {
+            maybeRefreshArtifacts(force: false)
+            startArtifactScanGuarded()
+        }
     }
 
     // Compare the bundle version against the latest GitHub release at most once a day, on its own
@@ -278,6 +302,7 @@ extension AppDelegate {
                 self.availableUpdate = update
                 if changed, self.replyPopover == nil, self.repoPickerPopover == nil,
                    self.dropPopover == nil, self.helpPopover == nil,
+                   Date().timeIntervalSince(self.lastArtifactTypeAt) > 2.0,
                    Date().timeIntervalSince(self.lastDragAt) > 1.0 {
                     self.rebuild(rows: self.lastRows)
                 }
@@ -324,7 +349,8 @@ extension AppDelegate {
                     self.usageError = L("トークンが読めない", "no oauth token")
                 }
                 if self.replyPopover == nil && self.repoPickerPopover == nil && self.dropPopover == nil
-                    && self.helpPopover == nil {
+                    && self.helpPopover == nil
+                    && Date().timeIntervalSince(self.lastArtifactTypeAt) > 2.0 {
                     self.rebuild(rows: self.lastRows)
                 }
             }

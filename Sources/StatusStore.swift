@@ -39,6 +39,11 @@ var transcriptLinksCache: [String: (links: [AgentLink], offset: UInt64)] = [:]
 // Guarded by factsLock.
 var teammateIdleCache: [String: (idleAt: [String: Date], offset: UInt64)] = [:]
 
+// key: session id. When a delta scan last saw a RE-publish of an Artifact URL the session already
+// carried (a redeploy — same URL, new content). The card's Artifact badge glows amber briefly
+// after this stamp, telling the user an open browser tab needs a reload (P4). Guarded by factsLock.
+var artifactPulseAt: [String: Date] = [:]
+
 // key: session id. Claude Code's AI-generated session title (the zellij pane title) read from
 // the transcript tail; refreshed at most every ~20s. nil is cached as a value (sessions from
 // before the ai-title transcript line existed) so they aren't rescanned every poll. Guarded by

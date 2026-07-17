@@ -188,8 +188,9 @@ func parseUsage(_ json: [String: Any]) -> UsageSnapshot {
     return UsageSnapshot(windows: windows, credit: credit, at: Date(), error: nil)
 }
 
-// Synchronous GET of an oauth endpoint. Call off the main thread.
-private func oauthGET(_ path: String, token: String) -> (status: Int, json: [String: Any]?, netErr: String?) {
+// Synchronous GET of an oauth endpoint (path may carry a query string). Call off the main thread.
+// Shared with the artifact-frames client (ArtifactIndex.swift) — same host, same header set.
+func oauthGET(_ path: String, token: String) -> (status: Int, json: [String: Any]?, netErr: String?) {
     var req = URLRequest(url: URL(string: "https://api.anthropic.com" + path)!)
     req.httpMethod = "GET"
     req.timeoutInterval = 20
