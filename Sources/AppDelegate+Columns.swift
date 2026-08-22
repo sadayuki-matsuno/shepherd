@@ -89,11 +89,20 @@ extension AppDelegate {
         pop.contentSize = padded.fittingSize
         pop.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
         hoverTipPopover = pop
+        hoverTipAnchor = anchor
     }
 
-    func hideHoverTip() {
+    // `from` is the view asking to close it. A rebuild recreates every card under a stationary
+    // pointer, and the NEW view's mouseEntered lands BEFORE the removed view's mouseExited
+    // (measured 2026-08-23: consecutive enters from fresh views, then a trailing exit from the dead
+    // one) — so a late exit would close the tip the live view just opened, and nothing reopens it
+    // until the pointer moves. Only the anchor currently showing the tip may close it; a caller
+    // that passes nothing (an unconditional dismiss) still always closes.
+    func hideHoverTip(from anchor: NSView? = nil) {
+        if let anchor = anchor, anchor !== hoverTipAnchor { return }
         hoverTipPopover?.close()
         hoverTipPopover = nil
+        hoverTipAnchor = nil
     }
 
     // Family peek popover (C7): hovering a collapsed family's summary previews its children.

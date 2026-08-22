@@ -167,6 +167,10 @@ struct AgentRow {
     var termProgram: String? = nil     // TERM_PROGRAM from the session's env — names the terminal a
                                        // bare (.other) session lives in
     var entrypoint: String? = nil      // registry entrypoint: "cli" / "sdk-cli" (`claude -p`)
+    var configDir: String? = nil       // the non-default CLAUDE_CONFIG_DIR this session lives under
+                                       // (nil = the default ~/.claude). Drives the card's config
+                                       // instrument — a second account's sessions share the board
+                                       // with the first's, and which is which isn't otherwise visible
 
     // What this session runs on, as chip text ("zellij" / "VS Code" / "Ghostty" / "claude -p" …).
     var runtime: String? {
@@ -298,6 +302,24 @@ struct EnvFacts: Equatable {
     // VSCODE_GIT_ASKPASS_MAIN: that path contains spaces ("Visual Studio Code.app") and truncates
     // in `ps -wwEp`'s space-separated output.
     var bundleId: String?
+    // CLAUDE_CONFIG_DIR, when it isn't the default ~/.claude. This is the AUTHORITY on which config
+    // dir a session belongs to — more reliable than which registry directory its file was read from,
+    // because those can be shared: a config dir whose `sessions` is symlinked to the default's puts
+    // the registry file in the default dir while `projects/` (the transcripts) stays behind
+    // (measured 2026-08-23 on a live setup — the cards lost model, context and title until this
+    // became the key). Kept for background workers too: the cc-daemon is per config dir, so a
+    // worker's inherited value names its own dir, unlike the terminal facts above.
+    var configDir: String?
+}
+
+// A CLAUDE_CONFIG_DIR value as Shepherd uses it: standardized, and nil when it is empty or is just
+// the default ~/.claude (which every other source already covers). Shared by the env reader and the
+// `ps`-dump scanner so both agree on what counts as "not the default".
+func nonDefaultConfigDir(_ raw: String?, home: String = NSHomeDirectory()) -> String? {
+    guard let raw = raw, !raw.isEmpty else { return nil }
+    let dir = (raw as NSString).standardizingPath
+    let base = ((home as NSString).appendingPathComponent(".claude") as NSString).standardizingPath
+    return dir.isEmpty || dir == base ? nil : dir
 }
 
 func envFacts(_ env: [String: String], isBackground: Bool) -> EnvFacts {
@@ -311,7 +333,8 @@ func envFacts(_ env: [String: String], isBackground: Bool) -> EnvFacts {
                     zellijPaneId: isBackground ? nil : nonEmpty("ZELLIJ_PANE_ID"),
                     parentSessionId: nonEmpty("SHEPHERD_PARENT_SESSION_ID"),
                     termProgram: isBackground ? nil : nonEmpty("TERM_PROGRAM"),
-                    bundleId: isBackground ? nil : nonEmpty("__CFBundleIdentifier"))
+                    bundleId: isBackground ? nil : nonEmpty("__CFBundleIdentifier"),
+                    configDir: nonDefaultConfigDir(env["CLAUDE_CONFIG_DIR"]))
 }
 
 // Is a source that watches the session RIGHT NOW reporting an open prompt? The daemon socket sees its
@@ -439,7 +462,10 @@ func subagentChildRow(parent: AgentRow, rec: SubagentRecord, git g: GitFacts?,
                     backend: .other, zellijSession: nil, zellijPaneId: nil, stale: false,
                     parentSessionId: parent.sessionId, subagents: [], zellijSendable: false,
                     updatedAt: rec.updatedAt, lastMessage: nil, startedAt: rec.startedAt,
-                    isSubagent: true)
+                    isSubagent: true,
+                    // A subagent runs inside its parent's process, so it lives in the parent's
+                    // config dir — and its transcript is read out of that dir's projects/ too.
+                    configDir: parent.configDir)
 }
 
 // MARK: - cc-daemon control socket
@@ -528,6 +554,12 @@ func closeMethod(for row: AgentRow) -> CloseMethod {
     // A subagent card has nothing external to stop: no pid, no daemon record, and its synthetic
     // session id is not a UUID `claude stop` would recognize.
     guard !row.sessionId.isEmpty, !row.isSubagent else { return .unavailable }
+    // A background worker under another CLAUDE_CONFIG_DIR belongs to THAT dir's cc-daemon, and every
+    // route we have — the roster file, the control socket, `claude stop` — is wired to the default
+    // one. It would answer ENOJOB, which stopBackgroundWorker reads as the desired end state and
+    // reports as success: the card would vanish while the worker kept running, then come back on the
+    // next refresh. Refusing is honest; a false success is not.
+    if row.isBackground, row.configDir != nil { return .unavailable }
     let id = shortSessionId(row.sessionId)
     return row.isBackground ? .stopBackgroundAgent(id) : .stopSession(id: id, pid: row.pid)
 }
@@ -825,6 +857,20 @@ func resolvedDeckPage(sections: [RepoSection], page: DeckPage) -> DeckPage {
     if case .sessions(let repoKey) = page,
        !sections.contains(where: { repoGroupKey($0) == repoKey }) { return .columns }
     return page
+}
+
+// A config dir as the card wears it: the directory's own name, minus the ".claude-" / ".claude."
+// prefix the convention puts in front of it (~/.claude-omeroid → "omeroid"). A name the prefix
+// can't be taken off — including the prefix on its own — stays whole rather than becoming empty.
+// Long names are cut short: instrument() labels have required compression resistance (they were
+// built for 4–6 character model names), so an over-long one pushes the whole instrument row past
+// the card edge and gets clipped mid-word with no ellipsis. The hover hint carries the full path.
+func configDirLabel(_ dir: String) -> String {
+    let base = (dir as NSString).lastPathComponent
+    let name = [".claude-", ".claude."]
+        .first { base.hasPrefix($0) && base.count > $0.count }
+        .map { String(base.dropFirst($0.count)) } ?? base
+    return name.count > 12 ? String(name.prefix(11)) + "…" : name
 }
 
 // Fold same-conversation forks into the family tree (2026-07-09). Claude Code's session picker

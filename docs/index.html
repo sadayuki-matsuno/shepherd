@@ -151,7 +151,7 @@
         <tr><th>source</th><th>what it provides</th></tr>
         <tr>
           <td>~/.claude/sessions/&lt;pid&gt;.json</td>
-          <td>Every session's own live status — <em>busy / idle / waiting</em>, and what it's waiting for. Watched with FSEvents, so state changes appear instantly.</td>
+          <td>Every session's own live status — <em>busy / idle / waiting</em>, and what it's waiting for. Watched with FSEvents, so state changes appear instantly. Sessions started under another <em>CLAUDE_CONFIG_DIR</em> keep their registry (and transcripts) there instead; Shepherd finds those dirs from the running processes and watches them too.</td>
         </tr>
         <tr>
           <td>transcript .jsonl</td>
@@ -167,7 +167,7 @@
         </tr>
         <tr>
           <td>ps -wwEp &lt;pid&gt;</td>
-          <td>The session's environment: which zellij pane or VS Code window it lives in, and the <em>SHEPHERD_PARENT_SESSION_ID</em> its parent exported — how child sessions nest.</td>
+          <td>The session's environment: which zellij pane or VS Code window it lives in, the <em>SHEPHERD_PARENT_SESSION_ID</em> its parent exported — how child sessions nest — and the <em>CLAUDE_CONFIG_DIR</em> it runs under, which is how config dirs other than the default are discovered.</td>
         </tr>
         <tr>
           <td>git / gh</td>
@@ -180,7 +180,7 @@
         <tr><th>データ源</th><th>得られるもの</th></tr>
         <tr>
           <td>~/.claude/sessions/&lt;pid&gt;.json</td>
-          <td>各セッションが自分で書くライブ状態 — <em>busy / idle / waiting</em> と、何を待っているか。FSEvents で監視するので状態変化は即座に反映。</td>
+          <td>各セッションが自分で書くライブ状態 — <em>busy / idle / waiting</em> と、何を待っているか。FSEvents で監視するので状態変化は即座に反映。別の <em>CLAUDE_CONFIG_DIR</em> で起動したセッションはレジストリも transcript もその dir 配下に置かれるが、Shepherd は稼働中のプロセスから使用中の dir を見つけて同じように監視する。</td>
         </tr>
         <tr>
           <td>transcript .jsonl</td>
@@ -196,7 +196,7 @@
         </tr>
         <tr>
           <td>ps -wwEp &lt;pid&gt;</td>
-          <td>セッションの環境変数: どの zellij ペイン／VS Code ウィンドウに居るか、親が export した <em>SHEPHERD_PARENT_SESSION_ID</em> — 子セッションがネストする仕組み。</td>
+          <td>セッションの環境変数: どの zellij ペイン／VS Code ウィンドウに居るか、親が export した <em>SHEPHERD_PARENT_SESSION_ID</em>（子セッションがネストする仕組み）、そして <em>CLAUDE_CONFIG_DIR</em> — 既定以外の config dir はこれで発見する。</td>
         </tr>
         <tr>
           <td>git / gh</td>

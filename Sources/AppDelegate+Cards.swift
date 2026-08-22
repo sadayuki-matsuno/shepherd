@@ -359,7 +359,8 @@ extension AppDelegate {
         // BG for a cc-daemon background agent (2026-07-09) — the one chip that changes what "close"
         // does, so it's worth seeing at a glance.
         let modeChip = permissionModeChip(row.permissionMode)
-        if modeChip != nil || row.model != nil || row.advisor != nil || row.isBackground {
+        if modeChip != nil || row.model != nil || row.advisor != nil || row.isBackground
+            || row.configDir != nil {
             let chips = NSStackView()
             chips.orientation = .horizontal
             chips.spacing = 8
@@ -405,12 +406,49 @@ extension AppDelegate {
                 let advTip = L("アドバイザー（--advisor）: 方針決定・停滞・完了前に自動相談される相談役モデル",
                                "advisor (--advisor): consulted automatically before big decisions, when stuck, and before finishing")
                 adv.onHover = { [weak self, weak adv] entered in
-                    if entered, let v = adv {
+                    guard let v = adv else { return }
+                    if entered {
                         let l = makeLabel(advTip, size: 11, color: Cat.text)
                         self?.showHoverTip(l, from: v)
-                    } else { self?.hideHoverTip() }
+                    } else { self?.hideHoverTip(from: v) }
                 }
                 chips.addArrangedSubview(adv)
+            }
+            // Which CLAUDE_CONFIG_DIR this session lives under — shown ONLY for a non-default one
+            // (a second account's sessions sit on the same board as the first's, and nothing else
+            // on the card tells them apart). Drawn in subtext, not a tier color: the instrument
+            // row's colors already mean "model tier", and identity is not a signal. Hover puts the
+            // full path on the hint line, like the runtime glyph and the context pie.
+            if let configDir = row.configDir,
+               let img = symbolImage("folder.badge.person.crop", size: 9, color: Cat.subtext) {
+                let box = HoverView()
+                let inst = instrument(img, configDirLabel(configDir), color: Cat.subtext)
+                inst.translatesAutoresizingMaskIntoConstraints = false
+                box.translatesAutoresizingMaskIntoConstraints = false
+                box.addSubview(inst)
+                NSLayoutConstraint.activate([
+                    inst.topAnchor.constraint(equalTo: box.topAnchor),
+                    inst.bottomAnchor.constraint(equalTo: box.bottomAnchor),
+                    inst.leadingAnchor.constraint(equalTo: box.leadingAnchor),
+                    inst.trailingAnchor.constraint(equalTo: box.trailingAnchor),
+                ])
+                let path = (configDir as NSString).abbreviatingWithTildeInPath
+                let tip = L("設定ディレクトリ: \(path)", "config dir: \(path)")
+                // The tip is an anchored popover, NOT the bottom hint line. The line does fire here
+                // (verified 2026-08-23 with a warped cursor: it renders the path correctly) but it
+                // sits at the far bottom-left of the board in 10.5pt overlay grey, an eyeline away
+                // from the instrument being hovered — the same "invisible in practice for
+                // per-element details" this popover was introduced for (see hoverTipPopover), and
+                // why the advisor instrument beside this one uses it too.
+                box.onHover = { [weak self, weak box] entered in
+                    guard let box = box else { return }
+                    if entered {
+                        self?.showHoverTip(makeLabel(tip, size: 11, color: Cat.text), from: box)
+                    } else {
+                        self?.hideHoverTip(from: box)
+                    }
+                }
+                chips.addArrangedSubview(box)
             }
             if row.isBackground { chips.addArrangedSubview(tinyChip("BG", color: Cat.mauve)) }
             // (The runtime chip moved to the title row as a leading glyph, 2026-07-15.)
@@ -936,6 +974,17 @@ extension AppDelegate {
                                          "Can't close: uncommitted changes — commit or stash first.")) }
             }
             menu.addItem(close)
+        }
+        // A background worker in another config dir has no daemon we can reach (closeMethod returns
+        // .unavailable for it), which would otherwise leave the menu silently short of a Stop item —
+        // say why instead, the same way the uncommitted-changes refusal does.
+        if closeTitle == nil, finished, row.isBackground, let configDir = row.configDir {
+            menu.addItem(.separator())
+            menu.addItem(ClosureMenuItem(L("バックグラウンドを停止（非対応）", "Stop background agent (unavailable)")) { [weak self] in
+                let name = configDirLabel(configDir)
+                self?.flashHint(L("別の config dir（\(name)）の daemon には届きません — そのアカウントのセッションから停止してください",
+                                  "can't reach another config dir's daemon (\(name)) — stop it from that account's session"))
+            })
         }
         // A background agent whose process is gone can't be stopped any further — `claude rm` is what
         // takes it off the agent-view list. It also deletes the session's worktree, so it's its own

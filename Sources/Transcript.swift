@@ -8,13 +8,29 @@ func sanitizeCwd(_ cwd: String) -> String {
     String(cwd.map { ($0.isLetter || $0.isNumber) ? $0 : "-" })
 }
 
+// The directory holding a session's transcript. Normally <claudeProjectsDir>/<sanitized cwd>, but a
+// session started with CLAUDE_CONFIG_DIR keeps its transcripts under THAT dir's projects/ — the
+// registry scan records which (readSessionsRegistry → sessionProjectsDirs), so every reader below
+// follows a session into its own config dir without carrying the path around. A subagent transcript
+// is addressed as "<session>/subagents/agent-<id>", so the lookup keys on the leading session id.
+//
+// Uses projectsDirLock, never factsLock: fetchAgents resolves a transcript path while holding
+// factsLock and NSLock is not recursive (see StatusStore).
+func transcriptDir(cwd: String, sessionId: String) -> String {
+    let root = sessionId.split(separator: "/").first.map(String.init) ?? sessionId
+    projectsDirLock.lock()
+    let base = sessionProjectsDirs[root] ?? claudeProjectsDir
+    projectsDirLock.unlock()
+    return (base as NSString).appendingPathComponent(sanitizeCwd(cwd))
+}
+
 // Last-modified time of a session's transcript jsonl. Used as a statusSince fallback for herdr
 // sessions started before the status-hook existed: they have no status file (so no updated_at), but
 // their transcript's mtime is the last real event, so the elapsed clock survives a Shepherd restart
 // instead of resetting to "now" (v6fix3). nil when the transcript is absent.
 func transcriptMtime(cwd: String, sessionId: String) -> Date? {
     guard !cwd.isEmpty, !sessionId.isEmpty else { return nil }
-    let dir = (claudeProjectsDir as NSString).appendingPathComponent(sanitizeCwd(cwd))
+    let dir = transcriptDir(cwd: cwd, sessionId: sessionId)
     let path = (dir as NSString).appendingPathComponent("\(sessionId).jsonl")
     return (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
 }
@@ -28,7 +44,7 @@ func transcriptMtime(cwd: String, sessionId: String) -> Date? {
 // fragment either way, and every reader below skips lines that don't parse as JSON.
 func readTranscriptContext(cwd: String, sessionId: String) -> (model: ModelInfo?, pct: Double?, advisor: ModelInfo?) {
     guard !cwd.isEmpty, !sessionId.isEmpty else { return (nil, nil, nil) }
-    let dir = (claudeProjectsDir as NSString).appendingPathComponent(sanitizeCwd(cwd))
+    let dir = transcriptDir(cwd: cwd, sessionId: sessionId)
     let path = (dir as NSString).appendingPathComponent("\(sessionId).jsonl")
     guard let fh = FileHandle(forReadingAtPath: path) else { return (nil, nil, nil) }
     defer { try? fh.close() }
@@ -256,7 +272,7 @@ func linksFromTranscriptSlice(_ text: String, publishes: [ArtifactPublish]? = ni
 let transcriptScanTail: UInt64 = 4 * 1024 * 1024
 func extractLinksFromTranscript(cwd: String, sessionId: String) -> [AgentLink] {
     guard !cwd.isEmpty, !sessionId.isEmpty else { return [] }
-    let dir = (claudeProjectsDir as NSString).appendingPathComponent(sanitizeCwd(cwd))
+    let dir = transcriptDir(cwd: cwd, sessionId: sessionId)
     let path = (dir as NSString).appendingPathComponent("\(sessionId).jsonl")
     factsLock.lock()
     let cached = transcriptLinksCache[sessionId]
@@ -312,7 +328,7 @@ func extractLinksFromTranscript(cwd: String, sessionId: String) -> [AgentLink] {
 // so 256KB of head covers even a large first paste. Immutable once written → cached forever.
 func firstUserMessageStamp(cwd: String, sessionId: String) -> String? {
     guard !cwd.isEmpty, !sessionId.isEmpty else { return nil }
-    let dir = (claudeProjectsDir as NSString).appendingPathComponent(sanitizeCwd(cwd))
+    let dir = transcriptDir(cwd: cwd, sessionId: sessionId)
     let path = (dir as NSString).appendingPathComponent("\(sessionId).jsonl")
     guard let fh = FileHandle(forReadingAtPath: path) else { return nil }
     defer { try? fh.close() }
@@ -375,7 +391,7 @@ func activityFallback(cwd: String, sessionId: String) -> String? {
 // skipping tool_result turns and Claude Code's own machine messages.
 func lastUserPromptFromTranscript(cwd: String, sessionId: String) -> String? {
     guard !cwd.isEmpty, !sessionId.isEmpty else { return nil }
-    let dir = (claudeProjectsDir as NSString).appendingPathComponent(sanitizeCwd(cwd))
+    let dir = transcriptDir(cwd: cwd, sessionId: sessionId)
     let path = (dir as NSString).appendingPathComponent("\(sessionId).jsonl")
     guard let fh = FileHandle(forReadingAtPath: path) else { return nil }
     defer { try? fh.close() }
@@ -408,7 +424,7 @@ func lastUserPromptFromTranscript(cwd: String, sessionId: String) -> String? {
 // (measured 5–28KB from EOF across real sessions).
 func readTranscriptAITitle(cwd: String, sessionId: String) -> String? {
     guard !cwd.isEmpty, !sessionId.isEmpty else { return nil }
-    let dir = (claudeProjectsDir as NSString).appendingPathComponent(sanitizeCwd(cwd))
+    let dir = transcriptDir(cwd: cwd, sessionId: sessionId)
     let path = (dir as NSString).appendingPathComponent("\(sessionId).jsonl")
     guard let fh = FileHandle(forReadingAtPath: path) else { return nil }
     defer { try? fh.close() }
@@ -449,7 +465,7 @@ func transcriptAITitle(cwd: String, sessionId: String) -> String? {
 // question is usually in or just before the last assistant turn; the user can jump to see the rest.
 func lastAssistantTextFromTranscript(cwd: String, sessionId: String) -> String? {
     guard !cwd.isEmpty, !sessionId.isEmpty else { return nil }
-    let dir = (claudeProjectsDir as NSString).appendingPathComponent(sanitizeCwd(cwd))
+    let dir = transcriptDir(cwd: cwd, sessionId: sessionId)
     let path = (dir as NSString).appendingPathComponent("\(sessionId).jsonl")
     guard let fh = FileHandle(forReadingAtPath: path) else { return nil }
     defer { try? fh.close() }
@@ -509,7 +525,7 @@ func formatBlockedPrompt(name: String, input: [String: Any]) -> String? {
 // question from an earlier turn.
 func blockedPromptFromTranscript(cwd: String, sessionId: String) -> String? {
     guard !cwd.isEmpty, !sessionId.isEmpty else { return nil }
-    let dir = (claudeProjectsDir as NSString).appendingPathComponent(sanitizeCwd(cwd))
+    let dir = transcriptDir(cwd: cwd, sessionId: sessionId)
     let path = (dir as NSString).appendingPathComponent("\(sessionId).jsonl")
     guard let fh = FileHandle(forReadingAtPath: path) else { return nil }
     defer { try? fh.close() }
@@ -555,7 +571,7 @@ enum TranscriptBlockState { case none, pending, resolved }
 // stat beats re-reading 256KB each time.
 func blockedState(cwd: String, sessionId: String) -> TranscriptBlockState {
     guard !cwd.isEmpty, !sessionId.isEmpty else { return .none }
-    let dir = (claudeProjectsDir as NSString).appendingPathComponent(sanitizeCwd(cwd))
+    let dir = transcriptDir(cwd: cwd, sessionId: sessionId)
     let path = (dir as NSString).appendingPathComponent("\(sessionId).jsonl")
     let attrs = try? FileManager.default.attributesOfItem(atPath: path)
     let fileSize = (attrs?[.size] as? NSNumber)?.uint64Value ?? 0
@@ -603,7 +619,7 @@ func blockedPending(cwd: String, sessionId: String) -> Bool {
 // is useless (it would read idle during those streaming gaps).
 func transcriptTurnActive(cwd: String, sessionId: String) -> Bool? {
     guard !cwd.isEmpty, !sessionId.isEmpty else { return nil }
-    let dir = (claudeProjectsDir as NSString).appendingPathComponent(sanitizeCwd(cwd))
+    let dir = transcriptDir(cwd: cwd, sessionId: sessionId)
     let path = (dir as NSString).appendingPathComponent("\(sessionId).jsonl")
     guard let fh = FileHandle(forReadingAtPath: path) else { return nil }
     defer { try? fh.close() }
@@ -687,7 +703,7 @@ func teammateIdlesFromSlice(_ text: String) -> [String: Date] {
 // read after that only the newly-appended bytes; results accumulate per session.
 func teammateIdleTimes(cwd: String, sessionId: String) -> [String: Date] {
     guard !cwd.isEmpty, !sessionId.isEmpty else { return [:] }
-    let dir = (claudeProjectsDir as NSString).appendingPathComponent(sanitizeCwd(cwd))
+    let dir = transcriptDir(cwd: cwd, sessionId: sessionId)
     let path = (dir as NSString).appendingPathComponent("\(sessionId).jsonl")
     factsLock.lock()
     let cached = teammateIdleCache[sessionId]
@@ -745,7 +761,7 @@ func teammateWorking(idleAt: Date?, jsonlMtime: Date?, now: Date = Date()) -> Bo
 // {"status":"async_launched"} and keeps running for minutes.
 func subagentsFromTranscript(cwd: String, sessionId: String) -> [SubagentRecord] {
     guard !cwd.isEmpty, !sessionId.isEmpty else { return [] }
-    let dir = (claudeProjectsDir as NSString).appendingPathComponent(sanitizeCwd(cwd))
+    let dir = transcriptDir(cwd: cwd, sessionId: sessionId)
     let subagents = ((dir as NSString).appendingPathComponent(sessionId) as NSString)
         .appendingPathComponent("subagents")
     guard let names = try? FileManager.default.contentsOfDirectory(atPath: subagents) else { return [] }
@@ -857,7 +873,7 @@ private func firstLine(_ s: String) -> String? {
 // time either changes, so the newest one in the tail is the current value.
 func transcriptTailValue(cwd: String, sessionId: String, type: String, field: String) -> String? {
     guard !cwd.isEmpty, !sessionId.isEmpty else { return nil }
-    let dir = (claudeProjectsDir as NSString).appendingPathComponent(sanitizeCwd(cwd))
+    let dir = transcriptDir(cwd: cwd, sessionId: sessionId)
     let path = (dir as NSString).appendingPathComponent("\(sessionId).jsonl")
     guard let fh = FileHandle(forReadingAtPath: path) else { return nil }
     defer { try? fh.close() }
@@ -884,7 +900,7 @@ func transcriptTailValue(cwd: String, sessionId: String, type: String, field: St
 // subagent's API error is not the session's state.
 func transcriptErrored(cwd: String, sessionId: String) -> Bool {
     guard !cwd.isEmpty, !sessionId.isEmpty else { return false }
-    let dir = (claudeProjectsDir as NSString).appendingPathComponent(sanitizeCwd(cwd))
+    let dir = transcriptDir(cwd: cwd, sessionId: sessionId)
     let path = (dir as NSString).appendingPathComponent("\(sessionId).jsonl")
     let attrs = try? FileManager.default.attributesOfItem(atPath: path)
     let fileSize = (attrs?[.size] as? NSNumber)?.uint64Value ?? 0
@@ -954,7 +970,7 @@ private func blockedStateUncached(path: String) -> TranscriptBlockState {
 // matched by session id — the last-resort label when the transcript has no readable prompt.
 func firstPromptFromSessionsIndex(cwd: String, sessionId: String) -> String? {
     guard !cwd.isEmpty, !sessionId.isEmpty else { return nil }
-    let dir = (claudeProjectsDir as NSString).appendingPathComponent(sanitizeCwd(cwd))
+    let dir = transcriptDir(cwd: cwd, sessionId: sessionId)
     let path = (dir as NSString).appendingPathComponent("sessions-index.json")
     guard let data = FileManager.default.contents(atPath: path),
           let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
