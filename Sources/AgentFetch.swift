@@ -24,12 +24,56 @@ func fetchAgents() -> [AgentRow] {
     var daemonBySession: [String: DaemonJob] = [:]
     for job in daemonJobs() ?? [] { daemonBySession[job.sessionId] = job }
 
+    // Sessions started with CLAUDE_CONFIG_DIR keep their registry (and transcripts) under that dir;
+    // discoveredConfigDirs finds the dirs in use, and the scan tags each entry with the one it came
+    // from — which is also what points transcript reads at the right projects/ tree (transcriptDir).
+    let registry = readSessionsRegistry(configDirs: discoveredConfigDirs())
     var registryBySession: [String: SessionRegistryEntry] = [:]
-    for e in readSessionsRegistry() { registryBySession[e.sessionId] = e }
+    for e in registry { registryBySession[e.sessionId] = e }
 
     let now = Date()
     probe.wait()
+    // `claude agents` reads only its own config dir, so a session under another one is absent from
+    // the CLI list and would never get a row (verified 2026-08-23). Build its entry from the
+    // registry file instead — every other fact still comes from the transcript, which transcriptDir
+    // resolves into that config dir. Purely additive: entries the CLI did list are untouched, and a
+    // session in the default dir is never synthesized. `rawStatus` stays nil on purpose — the
+    // registry's vocabulary (waiting / shell) isn't the CLI's, and the registry overlay in buildRow
+    // already speaks for this row.
+    let listed = Set(claudeEntries.map { $0.sessionId })
+    for e in registry where e.configDir != nil && !listed.contains(e.sessionId) {
+        claudeEntries.append(ClaudeAgentEntry(
+            sessionId: e.sessionId, shortId: shortSessionId(e.sessionId),
+            isBackground: e.kind == "background", pid: e.pid,
+            rawStatus: nil, rawState: nil,
+            // `name` only for an interactive entry. ClaudeAgentEntry reads a BACKGROUND name as the
+            // AI work title (that is what the CLI puts there), but the registry's is a derived
+            // session name like "shepherd-c3" — passing it through would print that as the card's
+            // activity line, ahead of the transcript's real ai-title. An interactive name is used as
+            // the label, which is what it is.
+            name: e.kind == "background" ? nil : e.name,
+            cwd: e.cwd, startedAt: e.startedAt))
+    }
     let envs = processEnvironments(pids: claudeEntries.compactMap { $0.pid })
+
+    // Where each session's transcripts live, keyed by what the session ITSELF says: its
+    // CLAUDE_CONFIG_DIR. The registry scan already published a map keyed by the directory each file
+    // was READ from, which is right until two config dirs share one sessions directory — a
+    // `sessions` symlinked to the default's puts the file in the default dir while `projects/`
+    // stays behind, and every transcript fact (model, context, title, turn state) then resolves to
+    // a path that doesn't exist (measured 2026-08-23 on a live setup). The env wins where both
+    // speak. Published before the concurrent builders start, since they read it.
+    var envConfigDirs: [String: String] = [:]
+    for e in claudeEntries {
+        guard let pid = e.pid, let dir = envFacts(envs[pid] ?? [:], isBackground: e.isBackground).configDir
+        else { continue }
+        envConfigDirs[e.sessionId] = (dir as NSString).appendingPathComponent("projects")
+    }
+    if !envConfigDirs.isEmpty {
+        projectsDirLock.lock()
+        for (sid, dir) in envConfigDirs { sessionProjectsDirs[sid] = dir }
+        projectsDirLock.unlock()
+    }
 
     // Ancestry snapshot, fetched once per refresh and only when some session carries BOTH
     // TERM_PROGRAM=vscode and zellij vars — the one combination env facts can't classify alone
@@ -154,7 +198,10 @@ func fetchAgents() -> [AgentRow] {
                         isBackground: e.isBackground, pid: e.pid,
                         needs: job?.needs ?? (reg?.status == "waiting" ? reg?.waitingFor : nil),
                         editorBundleId: backend == .vscode ? env.bundleId : nil,
-                        termProgram: env.termProgram, entrypoint: reg?.entrypoint)
+                        termProgram: env.termProgram, entrypoint: reg?.entrypoint,
+                        // The session's own env first (see envConfigDirs above); the registry file's
+                        // location is the fallback for a row whose process env we couldn't read.
+                        configDir: env.configDir ?? reg?.configDir)
     }
 
     // Each row's facts are dominated by subprocess / file IO, so build rows concurrently — wall-clock
@@ -240,6 +287,11 @@ func fetchAgents() -> [AgentRow] {
     activityFallbackCache = activityFallbackCache.filter { liveSessions.contains($0.key) }
     lastMessageCache = lastMessageCache.filter { liveSessions.contains($0.key) }
     factsLock.unlock()
+    // The transcript routing map is merged rather than rebuilt (see readSessionsRegistry), so this
+    // is what keeps it from growing forever.
+    projectsDirLock.lock()
+    sessionProjectsDirs = sessionProjectsDirs.filter { liveSessions.contains($0.key) }
+    projectsDirLock.unlock()
     // Ordering is handled per repo group at render time (see groupByRepo).
     return rows
 }

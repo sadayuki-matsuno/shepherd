@@ -36,7 +36,10 @@ extension AppDelegate {
                 // is what ends it. But a row we couldn't prove is a background agent (no `claude agents`
                 // entry) may still be one, and those must die through the roster or the daemon respawns
                 // them. The socket answers that in a millisecond, so ask instead of guessing.
-                if daemonJobExists(id) {
+                // The daemon probe only speaks for the DEFAULT config dir (see closeMethod), so for a
+                // session under another one it can neither confirm nor deny — skip it and use the
+                // signal, which is config-independent.
+                if row.configDir == nil, daemonJobExists(id) {
                     stopped = stopBackgroundWorker(id)
                 } else if let pid = pid, pidAlive(pid) {
                     kill(pid, SIGTERM)

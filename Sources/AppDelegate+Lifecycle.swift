@@ -205,14 +205,28 @@ extension AppDelegate {
 
     // MARK: - FSEvents (status dir + transcripts)
 
-    // Watch ~/.claude/sessions (each claude process's own status file). We deliberately do NOT watch
+    // Watch ~/.claude/sessions (each claude process's own status file) plus the sessions dir of every
+    // discovered CLAUDE_CONFIG_DIR, so a session under another config dir pushes its state flips the
+    // same way. Idempotent and re-called after every refresh: when the discovered set changes the
+    // stream is rebuilt over the new dirs, otherwise the call returns having done nothing. We
+    // deliberately do NOT watch
     // ~/.claude/projects: transcripts append on every token so it would fire many times a
     // second, and the transcript-derived facts (context %, model) are already 20s-cached — so
     // reacting faster is pointless while the per-refresh git/herdr work is not. The hook writes
     // a status file on every meaningful event, so those writes double as the activity signal and
     // keep context reasonably fresh; the 30s fallback timer covers the rest.
     func startFileWatch() {
-        let paths = [claudeSessionsDir] as CFArray
+        // Cached-only read of the discovered dirs: discovery itself is a subprocess and runs on the
+        // refresh's background queue (fetchAgents). It must never run here — this is called from
+        // the main thread right after a rebuild, the exact shape of the blank-panel stall
+        // (claudeAccount, 2026-07-14).
+        factsLock.lock()
+        let extra = configDirsCache?.dirs ?? []
+        factsLock.unlock()
+        let dirs = [claudeSessionsDir]
+            + extra.map { ($0 as NSString).appendingPathComponent("sessions") }
+        if fsStream != nil, dirs == watchedSessionsDirs { return }   // same set — keep the live stream
+        let paths = dirs as CFArray
         var ctx = FSEventStreamContext(version: 0,
                                        info: Unmanaged.passUnretained(self).toOpaque(),
                                        retain: nil, release: nil, copyDescription: nil)
@@ -222,12 +236,22 @@ extension AppDelegate {
             let app = Unmanaged<AppDelegate>.fromOpaque(info).takeUnretainedValue()
             DispatchQueue.main.async { app.scheduleDebouncedRefresh() }
         }
+        // Build the replacement BEFORE retiring the old one, and keep the old one if this fails:
+        // a teardown-first order that then failed to create would leave the board with no FSEvents
+        // at all, back on the 30s timer, silently — the shape of the 2026-07-14 blank-panel bug
+        // (never leave the working thing dismantled while building its replacement).
         guard let stream = FSEventStreamCreate(kCFAllocatorDefault, callback, &ctx, paths,
                                                FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
                                                0.1, flags) else { return }
         FSEventStreamSetDispatchQueue(stream, fsQueue)
         FSEventStreamStart(stream)
+        if let existing = fsStream {
+            FSEventStreamStop(existing)
+            FSEventStreamInvalidate(existing)
+            FSEventStreamRelease(existing)
+        }
         fsStream = stream
+        watchedSessionsDirs = dirs
     }
 
     // 0.2s debounce, main-thread. Coalesces bursts and drops FSEvents' own thread before refresh.
@@ -271,6 +295,9 @@ extension AppDelegate {
                     self.rebuild(rows: rows)
                 }
                 if self.deck != nil { self.renderDeck() }
+                // The fetch may have discovered a config dir we aren't watching yet (a session
+                // started under a new one); no-op when the set is unchanged.
+                self.startFileWatch()
                 self.isRefreshing = false
                 if self.refreshPending { self.refreshPending = false; self.refresh() }
             }

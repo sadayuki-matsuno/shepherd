@@ -283,7 +283,14 @@ extension AppDelegate {
                                      "already attached in another terminal (pid \(c.pid)) — use that window"))
                     return
                 }
-                self.jumpGhostty(command: "\(claude) attach \(short)", windowKey: "attachWin." + row.sessionId)
+                // `claude attach` finds its worker through the roster of whichever config dir it runs
+                // under, so a session living in another one has to be attached with that dir in the
+                // env or the CLI looks in the default roster and finds nothing. Carried by
+                // /usr/bin/env rather than a `VAR=x cmd` prefix: Ghostty's surface `command` is not
+                // guaranteed to go through a shell that would assign it.
+                let attach = row.configDir.map { "/usr/bin/env CLAUDE_CONFIG_DIR=\($0) \(claude) attach \(short)" }
+                    ?? "\(claude) attach \(short)"
+                self.jumpGhostty(command: attach, windowKey: "attachWin." + row.sessionId)
             }
         }
     }

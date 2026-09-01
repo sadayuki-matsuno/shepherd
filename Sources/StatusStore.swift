@@ -50,6 +50,21 @@ var artifactPulseAt: [String: Date] = [:]
 // factsLock.
 var aiTitleCache: [String: (title: String?, at: Date)] = [:]
 
+// The CLAUDE_CONFIG_DIRs live claude processes are using, other than the default ~/.claude
+// (discoveredConfigDirs). Cached 30s: the probe is a whole-process-table `ps`, and a new dir only
+// shows up when a session starts under one. Guarded by factsLock.
+var configDirsCache: (dirs: [String], at: Date)? = nil
+
+// key: session id. The projects dir of a session that lives under a non-default CLAUDE_CONFIG_DIR —
+// rebuilt wholesale by every readSessionsRegistry, read by transcriptDir. Sessions in the default
+// config dir are absent (transcriptDir falls back to claudeProjectsDir).
+//
+// It has its OWN lock rather than sharing factsLock: fetchAgents calls transcriptMtime — hence
+// transcriptDir — while holding factsLock, and NSLock is not recursive, so resolving a transcript
+// path must never need factsLock.
+let projectsDirLock = NSLock()
+var sessionProjectsDirs: [String: String] = [:]
+
 // `claude agents --json --all` — the list of sessions (claudeAgentsList). Cached 5s: FSEvents can fire
 // a burst of refreshes, and the probe is a ~0.27s subprocess that must not stack up. Guarded by factsLock.
 var claudeAgentsCache: (entries: [ClaudeAgentEntry], at: Date)? = nil

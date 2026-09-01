@@ -6,7 +6,8 @@ func makeRow(sessionId: String = "", status: String = "idle",
              changedFiles: Int? = nil, backend: Backend = .other,
              statusSince: Date = Date.distantPast, parentSessionId: String? = nil,
              startedAt: Date? = nil, forkKey: String? = nil, isFork: Bool = false,
-             isBackground: Bool = false, pid: Int32? = nil, isWorktree: Bool = false) -> AgentRow {
+             isBackground: Bool = false, pid: Int32? = nil, isWorktree: Bool = false,
+             configDir: String? = nil) -> AgentRow {
     AgentRow(sessionId: sessionId, model: nil, contextPct: nil,
              status: status, label: label, cwd: cwd, dirName: "", dirPath: "",
              branch: nil, changedFiles: changedFiles, issueNo: nil, prNo: nil, prUrl: nil, ciState: nil,
@@ -15,7 +16,7 @@ func makeRow(sessionId: String = "", status: String = "idle",
              zellijPaneId: nil, stale: false,
              parentSessionId: parentSessionId, subagents: [], zellijSendable: false,
              updatedAt: nil, lastMessage: nil, startedAt: startedAt, forkKey: forkKey, isFork: isFork,
-             isBackground: isBackground, pid: pid)
+             isBackground: isBackground, pid: pid, configDir: configDir)
 }
 
 // A reduced `claude agents --json --all` payload, field-for-field as measured on 2026-07-09
@@ -544,6 +545,48 @@ func runModelsTests() {
         expectNil(terminalDisplayName(nil), "no TERM_PROGRAM → no name to show")
     }
 
+    test("nonDefaultConfigDir: only a config dir that isn't the default counts") {
+        expectEq(nonDefaultConfigDir("/Users/me/.claude-work", home: "/Users/me"), "/Users/me/.claude-work")
+        expectNil(nonDefaultConfigDir("/Users/me/.claude", home: "/Users/me"),
+                  "the default dir is already read by every other source")
+        expectNil(nonDefaultConfigDir("/Users/me/.claude/", home: "/Users/me"),
+                  "standardized first, so a trailing slash is still the default")
+        expectNil(nonDefaultConfigDir(nil, home: "/Users/me"))
+        expectNil(nonDefaultConfigDir("", home: "/Users/me"))
+    }
+
+    test("envFacts: CLAUDE_CONFIG_DIR is read from the session's own env") {
+        // The authority on which config dir a session belongs to: two config dirs can SHARE a
+        // sessions directory (a symlink — seen live 2026-08-23), so the registry file's location
+        // can't answer this, and transcripts resolve to the wrong tree when it's used.
+        let env = ["CLAUDE_CONFIG_DIR": "/Users/me/.claude-work", "ZELLIJ_SESSION_NAME": "s"]
+        expectEq(envFacts(env, isBackground: false).configDir, "/Users/me/.claude-work")
+        expectEq(envFacts(env, isBackground: true).configDir, "/Users/me/.claude-work",
+                 "kept for background workers: the cc-daemon is per config dir, unlike the terminal facts")
+        expectNil(envFacts(["ZELLIJ_SESSION_NAME": "s"], isBackground: false).configDir,
+                  "a session with no CLAUDE_CONFIG_DIR is in the default dir")
+    }
+
+    test("configDirLabel: a config dir's card text is its name minus the .claude- prefix") {
+        expectEq(configDirLabel("/Users/me/.claude-omeroid"), "omeroid",
+                 "the common convention: ~/.claude-<account>")
+        expectEq(configDirLabel("/Users/me/.claude.work"), "work", "the dotted variant too")
+        expectEq(configDirLabel("/Users/me/.claude-work/"), "work",
+                 "a trailing slash is not part of the name")
+        expectEq(configDirLabel("/opt/claude-profiles/acme"), "acme",
+                 "a dir that doesn't follow the convention keeps its own name")
+        expectEq(configDirLabel("/Users/me/.claude-"), ".claude-",
+                 "the bare prefix stays whole — stripping it would leave an empty chip")
+        expectEq(configDirLabel("/Users/me/.claude"), ".claude",
+                 "the default dir never reaches the chip (configDirsFromPS drops it), but the "
+                 + "function is total: it names it rather than returning nothing")
+        expectEq(configDirLabel("/tmp/shepherd-test-config"), "shepherd-te…",
+                 "a long name is cut with an ellipsis — instrument() labels don't compress, so an "
+                 + "uncut one is clipped mid-word at the card edge (2026-08-23 capture)")
+        expectEq(configDirLabel("/Users/me/.claude-averylongaccountname").count, 12,
+                 "the cut applies after the prefix is stripped, so the chip has a hard width bound")
+    }
+
     test("runtimeLabel: names what a session runs on — multiplexer, editor, terminal, or headless") {
         func label(backend: Backend = .other, term: String? = nil, editor: String? = nil,
                    entrypoint: String? = "cli", bg: Bool = false, sub: Bool = false) -> String? {
@@ -746,6 +789,15 @@ func runModelsTests() {
                  .stopSession(id: "0ce9b801", pid: 35991),
                  "a bare/zellij interactive: `claude stop` is a no-op here (measured), so SIGTERM does the work")
         expectEq(closeMethod(for: makeRow(status: "idle")), .unavailable, "no session id — nothing to act on")
+        expectEq(closeMethod(for: makeRow(sessionId: "f0415bb1-24b8", status: "idle", isBackground: true,
+                                          pid: 37200, configDir: "/Users/me/.claude-work")),
+                 .unavailable,
+                 "a background worker in another config dir belongs to THAT dir's daemon: every stop "
+                 + "route here is wired to the default one and would report a false success")
+        expectEq(closeMethod(for: makeRow(sessionId: "0ce9b801-ea44", status: "idle", pid: 35991,
+                                          configDir: "/Users/me/.claude-work")),
+                 .stopSession(id: "0ce9b801", pid: 35991),
+                 "an interactive session still closes — SIGTERM doesn't care which config dir it lives in")
     }
 
     test("removableRecord: only a background agent whose process is gone") {

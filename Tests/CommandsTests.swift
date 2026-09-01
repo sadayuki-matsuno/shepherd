@@ -81,6 +81,91 @@ func runCommandsTests() {
                  "statusUpdatedAt (ms) outranks updatedAt and converts to seconds")
     }
 
+    test("readSessionsRegistry: scans extra config dirs and points their transcripts at them") {
+        let root = NSTemporaryDirectory() + "shepherd-test-config-\(UUID().uuidString)"
+        let home = root + "/.claude", other = root + "/.claude-work"
+        for d in [home + "/sessions", other + "/sessions"] {
+            try? FileManager.default.createDirectory(atPath: d, withIntermediateDirectories: true)
+        }
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let alive = ProcessInfo.processInfo.processIdentifier
+        func write(_ dir: String, _ name: String, _ json: String) {
+            try? json.write(toFile: dir + "/sessions/" + name, atomically: true, encoding: .utf8)
+        }
+        write(home, "1.json", #"{"pid":\#(alive),"sessionId":"sess-home","cwd":"/tmp/x","kind":"interactive"}"#)
+        write(home, "2.json", #"{"pid":\#(alive),"sessionId":"sess-both","cwd":"/tmp/x","kind":"interactive","name":"from-home"}"#)
+        write(other, "3.json", #"{"pid":\#(alive),"sessionId":"sess-other","cwd":"/tmp/y","kind":"interactive"}"#)
+        write(other, "4.json", #"{"pid":\#(alive),"sessionId":"sess-both","cwd":"/tmp/x","kind":"interactive","name":"from-other"}"#)
+        let savedSessions = claudeSessionsDir, savedProjects = claudeProjectsDir
+        claudeSessionsDir = home + "/sessions"
+        // sessionProjectsDirs is process-global: leaving an entry behind would redirect transcript
+        // resolution for every test that runs after this one.
+        defer {
+            claudeSessionsDir = savedSessions
+            claudeProjectsDir = savedProjects
+            projectsDirLock.lock(); sessionProjectsDirs = [:]; projectsDirLock.unlock()
+        }
+
+        let entries = readSessionsRegistry(configDirs: [other])
+        expectEq(entries.count, 3, "both dirs are scanned, the duplicate session id counted once")
+        expectEq(entries.first(where: { $0.sessionId == "sess-other" })?.configDir, other,
+                 "an entry is tagged with the config dir it came from")
+        expectEq(entries.first(where: { $0.sessionId == "sess-home" })?.configDir, nil,
+                 "the default dir's entries stay untagged")
+        expectEq(entries.first(where: { $0.sessionId == "sess-both" })?.name, "from-home",
+                 "a session id in both registries keeps the DEFAULT dir's entry")
+
+        expectEq(transcriptDir(cwd: "/tmp/y", sessionId: "sess-other"),
+                 other + "/projects/-tmp-y",
+                 "an extra dir's session reads its transcript out of that dir's projects/")
+        expectEq(transcriptDir(cwd: "/tmp/y", sessionId: "sess-other/subagents/agent-9"),
+                 other + "/projects/-tmp-y",
+                 "and so does its subagent transcript, addressed through the parent session id")
+        expectEq(transcriptDir(cwd: "/tmp/x", sessionId: "sess-home"),
+                 claudeProjectsDir + "/-tmp-x",
+                 "a default-dir session is unaffected")
+        expectEq(transcriptDir(cwd: "/tmp/x", sessionId: "sess-both"),
+                 claudeProjectsDir + "/-tmp-x",
+                 "so is the duplicate the default dir won")
+
+        // Merge, don't replace: scanning only the default dir is the obvious thing for future code
+        // to write, and it must not silently re-route an extra dir's sessions to the default
+        // projects/ tree (where their transcripts don't exist — every transcript fact would vanish
+        // from those cards).
+        _ = readSessionsRegistry()
+        expectEq(transcriptDir(cwd: "/tmp/y", sessionId: "sess-other"),
+                 other + "/projects/-tmp-y",
+                 "a default-only rescan leaves routing for sessions it never looked at intact")
+    }
+
+    test("configDirsFromPS: collects CLAUDE_CONFIG_DIR values, minus the default") {
+        let out = """
+        101 claude HOME=/Users/me CLAUDE_CONFIG_DIR=/Users/me/.claude-work TERM_PROGRAM=ghostty
+        102 claude CLAUDE_CONFIG_DIR=/Users/me/.claude-work CLAUDECODE=1
+        103 claude CLAUDE_CONFIG_DIR=/Users/me/.claude
+        104 claude CLAUDE_CONFIG_DIR=/Users/me/.claude-alt
+        105 node --inspect FOO=bar
+        """
+        expectEq(configDirsFromPS(out, home: "/Users/me"),
+                 ["/Users/me/.claude-alt", "/Users/me/.claude-work"],
+                 "deduped, sorted, and the default config dir dropped (it is already read)")
+        expectEq(configDirsFromPS(out, home: "/Users/other"),
+                 ["/Users/me/.claude", "/Users/me/.claude-alt", "/Users/me/.claude-work"],
+                 "with a different home, ~/.claude is just another dir")
+        expectEq(configDirsFromPS("101 claude CLAUDE_CONFIG_DIR=/Users/me/.claude-work/", home: "/Users/me"),
+                 ["/Users/me/.claude-work"], "paths are standardized, so a trailing slash is not a second dir")
+        expectEq(configDirsFromPS("101 claude CLAUDE_CONFIG_DIR_SUFFIXED=/nope", home: "/Users/me"), [],
+                 "a longer variable name is not the one we read")
+        expectEq(configDirsFromPS("", home: "/Users/me"), [], "an empty ps dump discovers nothing")
+    }
+
+    test("discoveredConfigDirs: a fixture run discovers nothing") {
+        // dev/demo-board.sh stages its own sessions/projects dirs; discovery would mix real
+        // sessions (customer repo names and all) into a staged capture.
+        expectEq(discoveredConfigDirs(env: ["SHEPHERD_SESSIONS_DIR": "/tmp/demo/sessions"]), [])
+        expectEq(discoveredConfigDirs(env: ["SHEPHERD_PROJECTS_DIR": "/tmp/demo/projects"]), [])
+    }
+
     test("processEnvironment: reads a live process's env (the attach-follow probe)") {
         // ps prints the env block captured at exec, so assert on vars every process inherits
         // rather than one this test could setenv (which would never reach that block).

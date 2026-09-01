@@ -29,6 +29,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NST
     var timer: Timer?                  // 30s fallback refresh (FSEvents drives the fast path)
     var gcTimer: Timer?               // 5-min status-file GC (dead-pid cleanup)
     var fsStream: FSEventStreamRef?   // watches the status dir + transcripts
+    // The sessions dirs fsStream currently covers (~/.claude/sessions plus the sessions dir of each
+    // discovered CLAUDE_CONFIG_DIR). startFileWatch rebuilds the stream when this set changes.
+    var watchedSessionsDirs: [String] = []
     let fsQueue = DispatchQueue(label: "shepherd.fsevents")
     var fsDebounce: DispatchWorkItem? // coalesces FSEvents bursts into one refresh
     var isRefreshing = false
@@ -214,6 +217,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NST
     // proved invisible in practice for per-element details (glyph hover). Transient; closed on
     // hover-exit and defensively at every rebuild.
     var hoverTipPopover: NSPopover?
+    // The view whose tip is currently up — so a torn-down view's late mouseExited can't close the
+    // tip a freshly built one just opened (see hideHoverTip).
+    weak var hoverTipAnchor: NSView?
     let repoPanelPad: CGFloat = 7
     // ？ヘルプ（アイコン・UI凡例）ポップオーバー。表示中は rebuild をスキップ（他のポップオーバーと同じ扱い）。
     var helpPopover: NSPopover?
