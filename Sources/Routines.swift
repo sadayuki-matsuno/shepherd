@@ -253,23 +253,29 @@ func fetchRoutines(previous: [Routine] = []) -> (routines: [Routine]?, error: St
     // One sessions call per routine, run in parallel like fetchAgents does its rows: sequentially
     // these were N × the request timeout, so a single unreachable endpoint delayed every routine
     // behind it. Each iteration writes its own slot; the lock guards only the shared array.
-    let targets = routines.indices.filter { routineNeedsSessionPass(routines[$0]) }
+    // Everything the parallel closure needs, snapshotted first: it must not reach back into the
+    // mutable `routines` array it is about to fill in.
+    let jobs = routines.indices.filter { routineNeedsSessionPass(routines[$0]) }.map {
+        // The id comes from the server; encode it rather than trusting it to be URL-safe.
+        (index: $0,
+         query: routines[$0].id.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
+            ?? routines[$0].id,
+         lastRunSessionId: routines[$0].lastRun?.sessionId,
+         previous: carried[routines[$0].id])
+    }
     var results = [Int: (state: String?, sessionId: String?, stale: Bool)]()
     let lock = NSLock()
-    DispatchQueue.concurrentPerform(iterations: targets.count) { slot in
-        let i = targets[slot]
-        // The id comes from the server; encode it rather than trusting it to be URL-safe.
-        let id = routines[i].id.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
-            ?? routines[i].id
-        let (s, b, _) = anthropicGET("/v1/code/sessions?trigger_id=\(id)", token: token,
+    DispatchQueue.concurrentPerform(iterations: jobs.count) { slot in
+        let job = jobs[slot]
+        let (s, b, _) = anthropicGET("/v1/code/sessions?trigger_id=\(job.query)", token: token,
                                      extraHeaders: routineAPIHeaders, timeout: 10)
         let rows = s == 200
             ? parseRoutineSessions(b.flatMap({ try? JSONSerialization.jsonObject(with: $0) }))
             : nil
-        let live = routineCarriedState(rows: rows, lastRunSessionId: routines[i].lastRun?.sessionId,
-                                       previous: carried[routines[i].id])
+        let live = routineCarriedState(rows: rows, lastRunSessionId: job.lastRunSessionId,
+                                       previous: job.previous)
         lock.lock()
-        results[i] = live
+        results[job.index] = live
         lock.unlock()
     }
     for (i, live) in results {
@@ -280,6 +286,6 @@ func fetchRoutines(previous: [Routine] = []) -> (routines: [Routine]?, error: St
     // Individual failures dim their own row (liveStale). The section-wide message is for the case
     // where nothing at all could be confirmed.
     let failures = results.values.filter { $0.stale }.count
-    return (routines, !targets.isEmpty && failures == targets.count
+    return (routines, !jobs.isEmpty && failures == jobs.count
             ? L("実行状況を取得できません", "run states unavailable") : nil)
 }
