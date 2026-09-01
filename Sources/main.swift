@@ -219,6 +219,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NST
     var routinesBarCollapsed = defaults.bool(forKey: "routinesBarCollapsed")
     var routinesFetchedAt = Date.distantPast   // 120秒ガード（畳んでいても取得する）
     var routinesFetching = false
+    var routinesRefreshPending = false         // 取得中に来た ↻ は捨てずに積んで完了直後にもう1周
     var routinesError: String?                 // stale-while-error: 失敗しても一覧は残す
     // Hover tooltip popover (2026-07-15): anchored at the hovered control — the bottom hint line
     // proved invisible in practice for per-element details (glyph hover). Transient; closed on

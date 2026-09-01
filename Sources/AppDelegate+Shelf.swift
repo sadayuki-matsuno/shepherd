@@ -211,6 +211,40 @@ extension AppDelegate {
         return bar
     }
 
+    // A section's capped list: a vertical stack in a scroll view sized to show at most `visibleRows`
+    // of them, so a long list scrolls instead of pushing the sections below it off the board. The
+    // caller keeps the returned stack to fill (ARTIFACTS populates its rows later, on every
+    // keystroke, without rebuilding this scroll). `rowStride` is one row plus the 4pt spacing —
+    // ARTIFACTS knows its rows' height in advance, ROUTINES measures a built row instead of
+    // guessing, which is what left dead space under the list before.
+    func cappedListScroll(visibleRows: Int, rowStride: CGFloat) -> (scroll: NSScrollView, stack: NSStackView) {
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 4
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        let doc = FlippedView()
+        doc.translatesAutoresizingMaskIntoConstraints = false
+        doc.addSubview(stack)
+        let scroll = NSScrollView()
+        scroll.drawsBackground = false
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.scrollerStyle = .overlay
+        scroll.documentView = doc
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            doc.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
+            stack.topAnchor.constraint(equalTo: doc.topAnchor),
+            stack.leadingAnchor.constraint(equalTo: doc.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: doc.trailingAnchor),
+            doc.bottomAnchor.constraint(equalTo: stack.bottomAnchor),
+            scroll.widthAnchor.constraint(equalToConstant: boardSpanWidth),
+            scroll.heightAnchor.constraint(equalToConstant: CGFloat(visibleRows) * rowStride),
+        ])
+        return (scroll, stack)
+    }
+
     func sessionsSectionBar(rows: [AgentRow]?) -> NSView {
         let collapsed = sessionsSectionCollapsed
         let count = rows?.count ?? 0
@@ -336,36 +370,13 @@ extension AppDelegate {
         filterRow.widthAnchor.constraint(equalToConstant: boardSpanWidth).isActive = true
         out.append(filterRow)
 
-        let list = NSStackView()
-        list.orientation = .vertical
-        list.alignment = .leading
-        list.spacing = 4
-        list.translatesAutoresizingMaskIntoConstraints = false
-        artifactListStack = list
-        let doc = FlippedView()
-        doc.translatesAutoresizingMaskIntoConstraints = false
-        doc.addSubview(list)
-        let scroll = NSScrollView()
-        scroll.drawsBackground = false
-        scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true
-        scroll.scrollerStyle = .overlay
-        scroll.documentView = doc
-        scroll.translatesAutoresizingMaskIntoConstraints = false
         // Cap the section at ~7 rows; more scrolls. The height is fixed at rebuild time — an
         // in-place search re-render doesn't resize the panel (auto mode can't grow without a
         // rebuild, and a rebuild would destroy the field being typed in).
         let visibleRows = min(max(shelfListOrder(records, pins: artifactPins, query: artifactQuery,
                                                  repoFilter: artifactRepoFilter).count, 1), 7)
-        NSLayoutConstraint.activate([
-            doc.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
-            list.topAnchor.constraint(equalTo: doc.topAnchor),
-            list.leadingAnchor.constraint(equalTo: doc.leadingAnchor),
-            list.trailingAnchor.constraint(equalTo: doc.trailingAnchor),
-            doc.bottomAnchor.constraint(equalTo: list.bottomAnchor),
-            scroll.widthAnchor.constraint(equalToConstant: boardSpanWidth),
-            scroll.heightAnchor.constraint(equalToConstant: CGFloat(visibleRows) * 31),
-        ])
+        let (scroll, list) = cappedListScroll(visibleRows: visibleRows, rowStride: 31)
+        artifactListStack = list
         renderArtifactList()
         out.append(scroll)
         return out

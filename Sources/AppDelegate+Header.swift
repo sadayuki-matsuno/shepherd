@@ -104,7 +104,7 @@ extension AppDelegate {
         if minimized {
             let waiting = routinesNeedingAction.count
             if waiting > 0 {
-                header.addArrangedSubview(badge(L("承認待ち \(waiting)", "approve \(waiting)"),
+                header.addArrangedSubview(badge(routineApprovalLabel(waiting),
                                                 symbol: "questionmark.circle.fill",
                                                 fg: Cat.peach, bg: Cat.peach.withAlphaComponent(0.16),
                                                 tip: L("routine が承認を待っています — クリックで一覧",

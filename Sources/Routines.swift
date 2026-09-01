@@ -42,6 +42,11 @@ struct Routine: Equatable {
     // renders from the trigger record alone rather than claiming the routine is idle.
     var liveState: String?      // "requires_action" / "running" / "idle"
     var liveSessionId: String?  // the run a click should open
+    // This cycle's sessions call for THIS routine failed, so liveState is either carried over or
+    // unknown — never current. Per-routine, because one endpoint failing out of several says
+    // nothing about the others, and a routine whose very first call failed is "unknown", not
+    // "confirmed idle".
+    var liveStale = false
 }
 
 // One row of the sessions listing. Only the two fields the board needs; everything else the
@@ -144,12 +149,33 @@ func routineNextRunText(_ d: Date?, timeZone: TimeZone = .current) -> String? {
 // call failed or returned nothing usable — what we last knew about it. Dropping to "no live state"
 // would turn an approval-waiting row back into an ordinary one, which reads as "resolved" when
 // nothing was resolved. Pure, unit-tested.
+// `stale` is what the row dims on: nil rows mean the call failed, so whatever state comes back is
+// the last thing we knew rather than the current one — including "nothing", which must not read as
+// a confirmed idle.
 func routineCarriedState(rows: [RoutineSessionRow]?, lastRunSessionId: String?, previous: Routine?)
-    -> (state: String?, sessionId: String?) {
+    -> (state: String?, sessionId: String?, stale: Bool) {
     if let rows = rows, let live = routineLiveState(rows: rows, lastRunSessionId: lastRunSessionId) {
-        return (live.state, live.sessionId)
+        return (live.state, live.sessionId, false)
     }
-    return (previous?.liveState, previous?.liveSessionId)
+    // An empty-but-successful list is not stale — the routine genuinely has no runs to report.
+    return (previous?.liveState, previous?.liveSessionId, rows == nil)
+}
+
+// Which of the four ways a row can read. The order is the point: an unanswered prompt outranks
+// everything (it needs a human whatever else is true), a routine the user switched off reads as
+// off even if a run is still winding down (showing it busy invites a click on something the user
+// has already decided against), and only then does a live run show.
+func routineRowState(_ r: Routine) -> String {
+    if r.liveState == "requires_action" { return "requires_action" }
+    if !r.enabled { return "disabled" }
+    if r.liveState == "running" { return "running" }
+    return "idle"
+}
+
+// One definition for the approval count, shared by the section bar and the minimized strip — two
+// places that drifted apart ("approve N" vs "needs approval N") when each spelled its own.
+func routineApprovalLabel(_ count: Int) -> String {
+    L("承認待ち \(count)", "needs approval \(count)")
 }
 
 // Which routines need the per-routine sessions call. Enabled ones always — that's where a live
@@ -210,7 +236,7 @@ let routineAPIHeaders = ["anthropic-beta": "ccr-triggers-2026-01-30",
 // `previous` is the list already on screen: a routine whose sessions call fails keeps the live
 // state it had rather than losing it, because dropping to "no live state" turns an
 // approval-waiting row back into an ordinary one — a false all-clear on the one thing this
-// section exists to show. Sequential and off the main thread.
+// section exists to show. Call off the main thread.
 func fetchRoutines(previous: [Routine] = []) -> (routines: [Routine]?, error: String?) {
     guard let token = claudeOAuthAccessToken() else {
         return (nil, L("トークンが読めない", "no oauth token"))
@@ -224,25 +250,36 @@ func fetchRoutines(previous: [Routine] = []) -> (routines: [Routine]?, error: St
     guard var routines = parseTriggers(body.flatMap({ try? JSONSerialization.jsonObject(with: $0) }))
     else { return (nil, L("形式が不明", "unexpected shape")) }
     let carried = Dictionary(previous.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-    var attempts = 0, failures = 0
-    for i in routines.indices where routineNeedsSessionPass(routines[i]) {
-        attempts += 1
+    // One sessions call per routine, run in parallel like fetchAgents does its rows: sequentially
+    // these were N × the request timeout, so a single unreachable endpoint delayed every routine
+    // behind it. Each iteration writes its own slot; the lock guards only the shared array.
+    let targets = routines.indices.filter { routineNeedsSessionPass(routines[$0]) }
+    var results = [Int: (state: String?, sessionId: String?, stale: Bool)]()
+    let lock = NSLock()
+    DispatchQueue.concurrentPerform(iterations: targets.count) { slot in
+        let i = targets[slot]
         // The id comes from the server; encode it rather than trusting it to be URL-safe.
         let id = routines[i].id.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
             ?? routines[i].id
         let (s, b, _) = anthropicGET("/v1/code/sessions?trigger_id=\(id)", token: token,
-                                     extraHeaders: routineAPIHeaders)
+                                     extraHeaders: routineAPIHeaders, timeout: 10)
         let rows = s == 200
             ? parseRoutineSessions(b.flatMap({ try? JSONSerialization.jsonObject(with: $0) }))
             : nil
-        if rows == nil { failures += 1 }
         let live = routineCarriedState(rows: rows, lastRunSessionId: routines[i].lastRun?.sessionId,
                                        previous: carried[routines[i].id])
+        lock.lock()
+        results[i] = live
+        lock.unlock()
+    }
+    for (i, live) in results {
         routines[i].liveState = live.state
         routines[i].liveSessionId = live.sessionId
+        routines[i].liveStale = live.stale
     }
-    // Every sessions call failing means no routine's live state is current. Say so, so the section
-    // can dim what it carried instead of presenting it as fresh.
-    return (routines, attempts > 0 && failures == attempts
+    // Individual failures dim their own row (liveStale). The section-wide message is for the case
+    // where nothing at all could be confirmed.
+    let failures = results.values.filter { $0.stale }.count
+    return (routines, !targets.isEmpty && failures == targets.count
             ? L("実行状況を取得できません", "run states unavailable") : nil)
 }

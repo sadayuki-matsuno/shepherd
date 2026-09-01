@@ -159,21 +159,48 @@ func runRoutinesTests() {
         let kept = routineCarriedState(rows: nil, lastRunSessionId: "cse_last", previous: waiting)
         expectEq(kept.state, "requires_action", "nil rows carry the previous state")
         expectEq(kept.sessionId, "cse_wait", "and the previous click target")
+        expect(kept.stale, "a failed call marks the row stale, so it renders dimmed")
 
-        // An empty list is as uninformative as a failure — same carry.
+        // An empty list is as uninformative as a failure for the carry — but it is NOT stale: the
+        // call succeeded, the routine simply has no runs to report.
         let empty = routineCarriedState(rows: [], lastRunSessionId: "cse_last", previous: waiting)
         expectEq(empty.state, "requires_action", "empty rows carry too")
+        expect(!empty.stale, "an empty-but-successful list is current, not stale")
 
         // Fresh rows always win over the carry, including when they say the prompt is gone.
         let fresh = routineCarriedState(rows: [RoutineSessionRow(id: "cse_last", workerStatus: "idle")],
                                         lastRunSessionId: "cse_last", previous: waiting)
         expectEq(fresh.state, "idle", "live rows override the carry")
         expectEq(fresh.sessionId, "cse_last", "and its click target")
+        expect(!fresh.stale, "a successful call is not stale")
 
-        // Nothing known and nothing carried stays unknown — never a confident "idle".
+        // Nothing known and nothing carried stays unknown — never a confident "idle". This is the
+        // first-fetch failure: unknown AND stale, so the row can't read as confirmed-quiet.
         let unknown = routineCarriedState(rows: nil, lastRunSessionId: "cse_last", previous: nil)
         expectNil(unknown.state, "no rows and no history → still unknown")
         expectNil(unknown.sessionId, "and no click target from thin air")
+        expect(unknown.stale, "a first-fetch failure is stale, not a confirmed idle")
+    }
+
+    test("routineRowState — which signal wins") {
+        func routine(enabled: Bool, live: String?) -> Routine {
+            Routine(id: "trig_x", name: "x", enabled: enabled, cronExpression: nil, nextRunAt: nil,
+                    lastFiredAt: nil, lastRun: nil, liveState: live)
+        }
+        // An unanswered prompt needs a human whatever else is true — including on a routine the
+        // user has since switched off.
+        expectEq(routineRowState(routine(enabled: true, live: "requires_action")), "requires_action",
+                 "approval outranks everything")
+        expectEq(routineRowState(routine(enabled: false, live: "requires_action")), "requires_action",
+                 "…including on a disabled routine")
+        // Disabled beats running: showing a switched-off routine as busy invites a click on
+        // something the user has already decided against.
+        expectEq(routineRowState(routine(enabled: false, live: "running")), "disabled",
+                 "disabled outranks a winding-down run")
+        expectEq(routineRowState(routine(enabled: true, live: "running")), "running", "running")
+        expectEq(routineRowState(routine(enabled: true, live: "idle")), "idle", "idle")
+        expectEq(routineRowState(routine(enabled: true, live: nil)), "idle", "unknown reads as idle")
+        expectEq(routineRowState(routine(enabled: false, live: nil)), "disabled", "disabled")
     }
 
     test("routineNeedsSessionPass") {
@@ -206,7 +233,19 @@ func runRoutinesTests() {
         expect(staged.allSatisfy { $0.nextRunAt != nil }, "every staged row has a schedule to show")
         // The demo board must never carry a real account's names or ids.
         expect(staged.allSatisfy { $0.id.hasPrefix("trig_demo") }, "ids are visibly fictional")
-        expect(routineSessionURL(staged[0].liveSessionId) != nil, "the staged row is still clickable")
+        // Every staged row must resolve to a run URL — the seam is the only path that produces
+        // these rows now, so a nil one would stage an unclickable board.
+        expect(staged.allSatisfy { routineSessionURL($0.liveSessionId) != nil },
+               "every staged row resolves to a run URL")
+        expect(staged.allSatisfy { !$0.liveStale }, "staged rows are never dimmed as stale")
+    }
+
+    test("routineApprovalLabel — one definition for both surfaces") {
+        // The section bar and the minimized strip each spelled their own English and drifted
+        // ("approve N" vs "needs approval N"); they now share this.
+        expectEq(routineApprovalLabel(1), routineApprovalLabel(1), "stable for a given count")
+        expect(routineApprovalLabel(2).contains("2"), "carries the count")
+        expect(routineApprovalLabel(1) != routineApprovalLabel(2), "distinguishes counts")
     }
 
     test("routineListOrder") {

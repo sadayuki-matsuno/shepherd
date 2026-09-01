@@ -21,12 +21,14 @@ extension AppDelegate {
         rebuild(rows: lastRows)
     }
 
-    // What the board should show: the fetched list, or invented rows when a staged capture asks
-    // for them (fixture mode never fetches, so the seam has to supply the data outright).
+    // What the board should show. The capture seam has ONE path: it substitutes invented rows,
+    // live board or staged board alike. (Pinning a field on the real fetched list was a second
+    // implementation of the same idea, and only worked where a fetch happened at all.)
     var displayedRoutines: [Routine] {
-        guard routineFixtureMode else { return routines }
-        return ProcessInfo.processInfo.environment["SHEPHERD_FAKE_ROUTINE_ACTION"] != nil
-            ? fakeActionRoutines() : []
+        if ProcessInfo.processInfo.environment["SHEPHERD_FAKE_ROUTINE_ACTION"] != nil {
+            return fakeActionRoutines()
+        }
+        return routineFixtureMode ? [] : routines
     }
 
     // Routines stopped at a permission prompt — the section's reason to exist.
@@ -51,7 +53,13 @@ extension AppDelegate {
         // Fixture mode (demo board / SHEPHERD_DUMP self-checks) stays off the live API — a staged
         // capture must never show the real account's routines.
         guard !routineFixtureMode else { return }
-        guard !routinesFetching, force || Date().timeIntervalSince(routinesFetchedAt) > 120 else { return }
+        // A ↻ pressed mid-fetch is queued, not dropped — same rule refresh() follows. Dropping it
+        // meant the button did nothing at exactly the moment the user asked for fresh numbers.
+        if routinesFetching {
+            if force { routinesRefreshPending = true }
+            return
+        }
+        guard force || Date().timeIntervalSince(routinesFetchedAt) > 120 else { return }
         routinesFetching = true
         let previous = routines
         DispatchQueue.global(qos: .utility).async {
@@ -60,26 +68,12 @@ extension AppDelegate {
                 self.routinesFetching = false
                 self.routinesFetchedAt = Date()
                 self.routinesError = error
-                if var list = fetched {
-                    // Capture seam, same spirit as SHEPHERD_FAKE_CREDIT_BURN: pin the first
-                    // routine to "waiting for approval" so that state can be screenshotted
-                    // without waiting for a real permission prompt to appear. (On a staged board
-                    // the seam works through displayedRoutines instead — there is no fetch there.)
-                    if ProcessInfo.processInfo.environment["SHEPHERD_FAKE_ROUTINE_ACTION"] != nil,
-                       !list.isEmpty {
-                        list[0].liveState = "requires_action"
-                        list[0].liveSessionId = list[0].lastRun?.sessionId
-                    }
-                    self.routines = list   // a failed fetch keeps the previous list
+                if let list = fetched { self.routines = list }   // a failed fetch keeps the old list
+                if self.routinesRefreshPending {
+                    self.routinesRefreshPending = false
+                    self.maybeRefreshRoutines(force: true)
                 }
-                // The same rebuild hold every async repaint takes: rebuilding mid-keystroke would
-                // recreate the ARTIFACTS search field and drop its focus.
-                if self.replyPopover == nil && self.repoPickerPopover == nil && self.dropPopover == nil
-                    && self.helpPopover == nil
-                    && Date().timeIntervalSince(self.lastArtifactTypeAt) > 2.0
-                    && Date().timeIntervalSince(self.lastDragAt) > 1.0 {
-                    self.rebuild(rows: self.lastRows)
-                }
+                if self.canRebuildNow() { self.rebuild(rows: self.lastRows) }
             }
         }
     }
@@ -102,7 +96,7 @@ extension AppDelegate {
         var accessories: [NSView] = []
         let needing = routinesNeedingAction
         if collapsed && !needing.isEmpty {
-            accessories.append(badge(L("承認待ち \(needing.count)", "needs approval \(needing.count)"),
+            accessories.append(badge(routineApprovalLabel(needing.count),
                                      symbol: "questionmark.circle.fill",
                                      fg: Cat.peach, bg: Cat.peach.withAlphaComponent(0.16),
                                      tip: L("routine 一覧を開く", "open the routine list")) { [weak self] in
@@ -133,38 +127,13 @@ extension AppDelegate {
             out.append(label)
             return out
         }
-        // Rows live in a capped scroll like the artifact list: a long routine list must not be
-        // able to push the sections below it off the board.
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 4
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        // Carried-over live state is dimmed the way stale gauges are — it is what we last knew,
-        // not what is true now.
-        let stale = routinesError != nil
-        for r in routineListOrder(list) {
-            stack.addArrangedSubview(routineRow(r, width: boardSpanWidth - 6, stale: stale))
-        }
-        let doc = FlippedView()
-        doc.translatesAutoresizingMaskIntoConstraints = false
-        doc.addSubview(stack)
-        let scroll = NSScrollView()
-        scroll.drawsBackground = false
-        scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true
-        scroll.scrollerStyle = .overlay
-        scroll.documentView = doc
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            doc.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
-            stack.topAnchor.constraint(equalTo: doc.topAnchor),
-            stack.leadingAnchor.constraint(equalTo: doc.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: doc.trailingAnchor),
-            doc.bottomAnchor.constraint(equalTo: stack.bottomAnchor),
-            scroll.widthAnchor.constraint(equalToConstant: boardSpanWidth),
-            scroll.heightAnchor.constraint(equalToConstant: CGFloat(min(list.count, 7)) * 36),
-        ])
+        // Rows in a capped scroll like the artifact list, so a long routine list can't push the
+        // sections below it off the board. The stride is measured off a built row rather than
+        // guessed — the 36pt guess over-reserved and left dead space under the list.
+        let rows = routineListOrder(list).map { routineRow($0, width: boardSpanWidth - 6) }
+        let stride = (rows.first.map { $0.fittingSize.height } ?? 29) + 4
+        let (scroll, stack) = cappedListScroll(visibleRows: min(rows.count, 7), rowStride: stride)
+        rows.forEach(stack.addArrangedSubview)
         out.append(scroll)
         return out
     }
@@ -172,8 +141,9 @@ extension AppDelegate {
     // One routine: state glyph ・ name ・ [? 承認待ち] ・ next-run stamp ・ last-run mark.
     // Disabled routines dim like an idle card and drop the schedule text — a greyed row still
     // promising a next run reads as a bug.
-    private func routineRow(_ r: Routine, width: CGFloat, stale: Bool) -> NSView {
-        let needsAction = r.liveState == "requires_action"
+    private func routineRow(_ r: Routine, width: CGFloat) -> NSView {
+        let state = routineRowState(r)
+        let needsAction = state == "requires_action"
         let row = ShelfRowView()
         row.wantsLayer = true
         row.baseColor = needsAction ? Cat.peach.withAlphaComponent(0.12) : Cat.surface.withAlphaComponent(0.4)
@@ -183,19 +153,27 @@ extension AppDelegate {
         row.translatesAutoresizingMaskIntoConstraints = false
 
         let (symbol, tint) = needsAction ? ("questionmark.circle.fill", Cat.peach)
-            : r.liveState == "running" ? ("arrow.triangle.2.circlepath", Cat.green)
-            : !r.enabled ? ("pause.circle", Cat.overlay)
+            : state == "disabled" ? ("pause.circle", Cat.overlay)
+            : state == "running" ? ("arrow.triangle.2.circlepath", Cat.green)
             : ("clock", Cat.subtext)
         let glyph = NSImageView(image: symbolImage(symbol, size: 11, color: tint) ?? NSImage())
         glyph.translatesAutoresizingMaskIntoConstraints = false
         glyph.setContentHuggingPriority(.required, for: .horizontal)
+        // This cycle's sessions call for this routine failed: the live signals are the last thing
+        // we knew, so they fade while the schedule facts (from the trigger record, still current)
+        // stay at full strength.
+        if r.liveStale { glyph.alphaValue = 0.45 }
 
         let name = makeLabel(r.name, size: 12, weight: .medium, color: Cat.text)
         name.lineBreakMode = .byTruncatingTail
         name.setContentCompressionResistancePriority(NSLayoutConstraint.Priority(10), for: .horizontal)
 
         var trailing: [NSView] = [NSView()]
-        if needsAction { trailing.append(pill(L("? 承認待ち", "? needs approval"), color: Cat.peach)) }
+        if needsAction {
+            let chip = pill(L("? 承認待ち", "? needs approval"), color: Cat.peach)
+            if r.liveStale { chip.alphaValue = 0.45 }
+            trailing.append(chip)
+        }
         let schedule = r.enabled ? routineNextRunText(r.nextRunAt).map { L("次回 \($0)", "next \($0)") }
                                  : L("無効", "disabled")
         if let schedule = schedule {
@@ -227,7 +205,7 @@ extension AppDelegate {
             h.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -10),
             row.widthAnchor.constraint(equalToConstant: width),
         ])
-        row.alphaValue = (r.enabled ? 1 : 0.5) * (stale ? 0.6 : 1)
+        if !r.enabled { row.alphaValue = 0.5 }
 
         // The run a click opens: the one asking for approval when there is one, else the last run.
         // Both come from data the trigger record already carried, so the row stays clickable even

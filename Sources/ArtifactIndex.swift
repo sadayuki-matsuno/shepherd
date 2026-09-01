@@ -154,15 +154,15 @@ let frameAPIHeaders = ["X-Frame-CP": "go", "X-Frame-Surface": "code", "X-Frame-P
 // Synchronous GET against api.anthropic.com carrying an explicit private-API header set — the
 // X-Frame-* trio here, the anthropic-beta/version pair the routines endpoints want
 // (Routines.swift). Call off main.
-func anthropicGET(_ path: String, token: String, extraHeaders: [String: String])
-    -> (status: Int, body: Data?, netErr: String?) {
+func anthropicGET(_ path: String, token: String, extraHeaders: [String: String],
+                  timeout: TimeInterval = 20) -> (status: Int, body: Data?, netErr: String?) {
     // Paths can carry server-supplied ids (a routine's trigger_id), so a malformed one must come
     // back as a failed fetch, never a crash.
     guard let url = URL(string: "https://api.anthropic.com" + path) else {
         return (-1, nil, L("URL が不正", "malformed URL"))
     }
     var req = URLRequest(url: url)
-    req.timeoutInterval = 20
+    req.timeoutInterval = timeout
     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     req.setValue("application/json", forHTTPHeaderField: "Accept")
     for (k, v) in extraHeaders { req.setValue(v, forHTTPHeaderField: k) }
@@ -173,7 +173,7 @@ func anthropicGET(_ path: String, token: String, extraHeaders: [String: String])
         if let err = err { netErr = err.localizedDescription }
         sem.signal()
     }.resume()
-    _ = sem.wait(timeout: .now() + 22)
+    _ = sem.wait(timeout: .now() + timeout + 2)
     return (status, body, netErr)
 }
 
