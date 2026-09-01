@@ -21,8 +21,28 @@ extension AppDelegate {
         rebuild(rows: lastRows)
     }
 
+    // What the board should show: the fetched list, or invented rows when a staged capture asks
+    // for them (fixture mode never fetches, so the seam has to supply the data outright).
+    var displayedRoutines: [Routine] {
+        guard routineFixtureMode else { return routines }
+        return ProcessInfo.processInfo.environment["SHEPHERD_FAKE_ROUTINE_ACTION"] != nil
+            ? fakeActionRoutines() : []
+    }
+
     // Routines stopped at a permission prompt — the section's reason to exist.
-    var routinesNeedingAction: [Routine] { routines.filter { $0.liveState == "requires_action" } }
+    var routinesNeedingAction: [Routine] { displayedRoutines.filter { $0.liveState == "requires_action" } }
+
+    // Bring the routine list into view — the minimized strip's approval chip jumps here, the way
+    // the quota chip jumps to the usage panel.
+    func revealRoutines() {
+        if minimized { minimized = false; defaults.set(false, forKey: "minimized") }
+        if routinesBarCollapsed {
+            routinesBarCollapsed = false
+            defaults.set(false, forKey: "routinesBarCollapsed")
+        }
+        rebuild(rows: lastRows)
+        maybeRefreshRoutines(force: true)
+    }
 
     // Fetch on refresh()'s coat-tails, 120s guard, whether the section is open or not: the folded
     // bar still carries the count and the approval chip, and freezing those behind a fold is the
@@ -30,12 +50,12 @@ extension AppDelegate {
     func maybeRefreshRoutines(force: Bool) {
         // Fixture mode (demo board / SHEPHERD_DUMP self-checks) stays off the live API — a staged
         // capture must never show the real account's routines.
-        let env = ProcessInfo.processInfo.environment
-        guard env["SHEPHERD_SESSIONS_DIR"] == nil, env["SHEPHERD_PROJECTS_DIR"] == nil else { return }
+        guard !routineFixtureMode else { return }
         guard !routinesFetching, force || Date().timeIntervalSince(routinesFetchedAt) > 120 else { return }
         routinesFetching = true
+        let previous = routines
         DispatchQueue.global(qos: .utility).async {
-            let (fetched, error) = fetchRoutines()
+            let (fetched, error) = fetchRoutines(previous: previous)
             DispatchQueue.main.async {
                 self.routinesFetching = false
                 self.routinesFetchedAt = Date()
@@ -43,8 +63,10 @@ extension AppDelegate {
                 if var list = fetched {
                     // Capture seam, same spirit as SHEPHERD_FAKE_CREDIT_BURN: pin the first
                     // routine to "waiting for approval" so that state can be screenshotted
-                    // without waiting for a real permission prompt to appear.
-                    if env["SHEPHERD_FAKE_ROUTINE_ACTION"] != nil, !list.isEmpty {
+                    // without waiting for a real permission prompt to appear. (On a staged board
+                    // the seam works through displayedRoutines instead — there is no fetch there.)
+                    if ProcessInfo.processInfo.environment["SHEPHERD_FAKE_ROUTINE_ACTION"] != nil,
+                       !list.isEmpty {
                         list[0].liveState = "requires_action"
                         list[0].liveSessionId = list[0].lastRun?.sessionId
                     }
@@ -65,13 +87,13 @@ extension AppDelegate {
     // Disclosure bar (count, plus the fetch stamp and ↻ when open, or the approval chip when
     // folded), then one row per routine.
     func routinesSectionViews() -> [NSView] {
-        // Fixture mode never fetches (see maybeRefreshRoutines), so the section could only ever
-        // render an empty "no routines" line — and dev/demo-board.sh's captures are what
-        // docs/assets ships. Leave the section out of a staged board entirely.
-        let env = ProcessInfo.processInfo.environment
-        guard env["SHEPHERD_SESSIONS_DIR"] == nil, env["SHEPHERD_PROJECTS_DIR"] == nil else { return [] }
+        let list = displayedRoutines
+        // An unstaged fixture board never fetches, so the section could only render an empty "no
+        // routines" line — and dev/demo-board.sh's captures are what docs/assets ships. Leave it
+        // out entirely there.
+        if routineFixtureMode && list.isEmpty { return [] }
         let collapsed = routinesBarCollapsed
-        let toggle = badge("ROUTINES — \(routines.count)",
+        let toggle = badge("ROUTINES — \(list.count)",
                            symbol: collapsed ? "chevron.right" : "chevron.down",
                            fg: Cat.subtext, bg: .clear,
                            tip: L("routine 一覧を開閉", "collapse / expand the routine list")) { [weak self] in
@@ -102,7 +124,7 @@ extension AppDelegate {
         var out: [NSView] = [sectionRow(toggle: toggle, accessories: accessories)]
         guard !collapsed else { return out }
 
-        if routines.isEmpty {
+        if list.isEmpty {
             let msg = routinesFetching ? L("取得中…", "fetching…")
                 : routinesError != nil ? L("取得できません", "unavailable")
                 : L("routine はありません", "no routines")
@@ -111,14 +133,46 @@ extension AppDelegate {
             out.append(label)
             return out
         }
-        for r in routineListOrder(routines) { out.append(routineRow(r, width: boardSpanWidth - 6)) }
+        // Rows live in a capped scroll like the artifact list: a long routine list must not be
+        // able to push the sections below it off the board.
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 4
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        // Carried-over live state is dimmed the way stale gauges are — it is what we last knew,
+        // not what is true now.
+        let stale = routinesError != nil
+        for r in routineListOrder(list) {
+            stack.addArrangedSubview(routineRow(r, width: boardSpanWidth - 6, stale: stale))
+        }
+        let doc = FlippedView()
+        doc.translatesAutoresizingMaskIntoConstraints = false
+        doc.addSubview(stack)
+        let scroll = NSScrollView()
+        scroll.drawsBackground = false
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.scrollerStyle = .overlay
+        scroll.documentView = doc
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            doc.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
+            stack.topAnchor.constraint(equalTo: doc.topAnchor),
+            stack.leadingAnchor.constraint(equalTo: doc.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: doc.trailingAnchor),
+            doc.bottomAnchor.constraint(equalTo: stack.bottomAnchor),
+            scroll.widthAnchor.constraint(equalToConstant: boardSpanWidth),
+            scroll.heightAnchor.constraint(equalToConstant: CGFloat(min(list.count, 7)) * 36),
+        ])
+        out.append(scroll)
         return out
     }
 
     // One routine: state glyph ・ name ・ [? 承認待ち] ・ next-run stamp ・ last-run mark.
     // Disabled routines dim like an idle card and drop the schedule text — a greyed row still
     // promising a next run reads as a bug.
-    private func routineRow(_ r: Routine, width: CGFloat) -> NSView {
+    private func routineRow(_ r: Routine, width: CGFloat, stale: Bool) -> NSView {
         let needsAction = r.liveState == "requires_action"
         let row = ShelfRowView()
         row.wantsLayer = true
@@ -173,7 +227,7 @@ extension AppDelegate {
             h.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -10),
             row.widthAnchor.constraint(equalToConstant: width),
         ])
-        if !r.enabled { row.alphaValue = 0.5 }
+        row.alphaValue = (r.enabled ? 1 : 0.5) * (stale ? 0.6 : 1)
 
         // The run a click opens: the one asking for approval when there is one, else the last run.
         // Both come from data the trigger record already carried, so the row stays clickable even

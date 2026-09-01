@@ -156,7 +156,12 @@ let frameAPIHeaders = ["X-Frame-CP": "go", "X-Frame-Surface": "code", "X-Frame-P
 // (Routines.swift). Call off main.
 func anthropicGET(_ path: String, token: String, extraHeaders: [String: String])
     -> (status: Int, body: Data?, netErr: String?) {
-    var req = URLRequest(url: URL(string: "https://api.anthropic.com" + path)!)
+    // Paths can carry server-supplied ids (a routine's trigger_id), so a malformed one must come
+    // back as a failed fetch, never a crash.
+    guard let url = URL(string: "https://api.anthropic.com" + path) else {
+        return (-1, nil, L("URL が不正", "malformed URL"))
+    }
+    var req = URLRequest(url: url)
     req.timeoutInterval = 20
     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     req.setValue("application/json", forHTTPHeaderField: "Accept")

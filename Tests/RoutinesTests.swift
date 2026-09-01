@@ -150,6 +150,65 @@ func runRoutinesTests() {
         expectNil(routineNextRunText(nil), "no date → no stamp")
     }
 
+    test("routineCarriedState — a failed sessions call keeps what we knew") {
+        let waiting = Routine(id: "trig_x", name: "x", enabled: true, cronExpression: nil,
+                              nextRunAt: nil, lastFiredAt: nil, lastRun: nil,
+                              liveState: "requires_action", liveSessionId: "cse_wait")
+        // The failure case this exists for: losing the state would quietly clear an approval
+        // prompt that is still sitting there unanswered.
+        let kept = routineCarriedState(rows: nil, lastRunSessionId: "cse_last", previous: waiting)
+        expectEq(kept.state, "requires_action", "nil rows carry the previous state")
+        expectEq(kept.sessionId, "cse_wait", "and the previous click target")
+
+        // An empty list is as uninformative as a failure — same carry.
+        let empty = routineCarriedState(rows: [], lastRunSessionId: "cse_last", previous: waiting)
+        expectEq(empty.state, "requires_action", "empty rows carry too")
+
+        // Fresh rows always win over the carry, including when they say the prompt is gone.
+        let fresh = routineCarriedState(rows: [RoutineSessionRow(id: "cse_last", workerStatus: "idle")],
+                                        lastRunSessionId: "cse_last", previous: waiting)
+        expectEq(fresh.state, "idle", "live rows override the carry")
+        expectEq(fresh.sessionId, "cse_last", "and its click target")
+
+        // Nothing known and nothing carried stays unknown — never a confident "idle".
+        let unknown = routineCarriedState(rows: nil, lastRunSessionId: "cse_last", previous: nil)
+        expectNil(unknown.state, "no rows and no history → still unknown")
+        expectNil(unknown.sessionId, "and no click target from thin air")
+    }
+
+    test("routineNeedsSessionPass") {
+        func routine(enabled: Bool, lastStatus: String?) -> Routine {
+            Routine(id: "trig_x", name: "x", enabled: enabled, cronExpression: nil, nextRunAt: nil,
+                    lastFiredAt: nil,
+                    lastRun: lastStatus.map { RoutineRun(status: $0, sessionId: "cse_x",
+                                                         firedAt: nil, finishedAt: nil) })
+        }
+        expect(routineNeedsSessionPass(routine(enabled: true, lastStatus: nil)),
+               "an enabled routine is always asked about")
+        expect(routineNeedsSessionPass(routine(enabled: true, lastStatus: "ROUTINE_RUN_STATUS_SUCCEEDED")),
+               "enabled + finished still asked — SUCCEEDED doesn't mean the session ended")
+        // A run that started before the routine was switched off can still be sitting at a
+        // permission prompt; skipping it would bury the state the section exists to surface.
+        expect(routineNeedsSessionPass(routine(enabled: false, lastStatus: "ROUTINE_RUN_STATUS_PENDING")),
+               "disabled with a run still pending IS asked about")
+        expect(!routineNeedsSessionPass(routine(enabled: false, lastStatus: "ROUTINE_RUN_STATUS_SUCCEEDED")),
+               "disabled with a finished run is skipped")
+        expect(!routineNeedsSessionPass(routine(enabled: false, lastStatus: nil)),
+               "disabled and never run is skipped")
+    }
+
+    test("fakeActionRoutines — staged capture data") {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let staged = fakeActionRoutines(now: now)
+        expectEq(staged.filter { $0.liveState == "requires_action" }.count, 1,
+                 "exactly one routine stages the approval state")
+        expect(staged.count > 1, "and at least one ordinary row for contrast")
+        expect(staged.allSatisfy { $0.nextRunAt != nil }, "every staged row has a schedule to show")
+        // The demo board must never carry a real account's names or ids.
+        expect(staged.allSatisfy { $0.id.hasPrefix("trig_demo") }, "ids are visibly fictional")
+        expect(routineSessionURL(staged[0].liveSessionId) != nil, "the staged row is still clickable")
+    }
+
     test("routineListOrder") {
         func routine(_ name: String, enabled: Bool = true, next: TimeInterval?,
                      live: String? = nil) -> Routine {

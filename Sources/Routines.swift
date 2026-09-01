@@ -140,6 +140,54 @@ func routineNextRunText(_ d: Date?, timeZone: TimeZone = .current) -> String? {
     return fmt.string(from: d)
 }
 
+// The live state a routine should carry after its sessions pass: what the rows say, or — when the
+// call failed or returned nothing usable — what we last knew about it. Dropping to "no live state"
+// would turn an approval-waiting row back into an ordinary one, which reads as "resolved" when
+// nothing was resolved. Pure, unit-tested.
+func routineCarriedState(rows: [RoutineSessionRow]?, lastRunSessionId: String?, previous: Routine?)
+    -> (state: String?, sessionId: String?) {
+    if let rows = rows, let live = routineLiveState(rows: rows, lastRunSessionId: lastRunSessionId) {
+        return (live.state, live.sessionId)
+    }
+    return (previous?.liveState, previous?.liveSessionId)
+}
+
+// Which routines need the per-routine sessions call. Enabled ones always — that's where a live
+// run is. A disabled one only while its last run is still PENDING: a run that started before the
+// routine was switched off can still be sitting at a permission prompt, and skipping it would
+// bury exactly the state this section exists to surface.
+func routineNeedsSessionPass(_ r: Routine) -> Bool {
+    r.enabled || routineRunKind(r.lastRun?.status) == "pending"
+}
+
+// Staged-capture mode: dev/demo-board.sh and the SHEPHERD_DUMP self-checks point Shepherd's data
+// directories elsewhere, and no private API may be called while they do — a staged screenshot must
+// never carry the real account's routines.
+var routineFixtureMode: Bool {
+    let env = ProcessInfo.processInfo.environment
+    return env["SHEPHERD_SESSIONS_DIR"] != nil || env["SHEPHERD_PROJECTS_DIR"] != nil
+}
+
+// Invented routines for a staged capture (SHEPHERD_FAKE_ROUTINE_ACTION), including the
+// approval-waiting state a real board only reaches when a run actually stops at a prompt. Fixture
+// mode never fetches, so without these the demo board has nothing to photograph. Names and ids are
+// fictional by the same rule the rest of the demo board follows.
+func fakeActionRoutines(now: Date = Date()) -> [Routine] {
+    [Routine(id: "trig_demo_release_notes", name: "release-notes-digest", enabled: true,
+             cronExpression: "0 9 * * 1", nextRunAt: now.addingTimeInterval(3600 * 19),
+             lastFiredAt: now.addingTimeInterval(-3600 * 5),
+             lastRun: RoutineRun(status: "ROUTINE_RUN_STATUS_PENDING", sessionId: "cse_demoAwaiting",
+                                 firedAt: now.addingTimeInterval(-3600 * 5), finishedAt: nil),
+             liveState: "requires_action", liveSessionId: "cse_demoAwaiting"),
+     Routine(id: "trig_demo_dependency_audit", name: "dependency-audit", enabled: true,
+             cronExpression: "0 3 * * *", nextRunAt: now.addingTimeInterval(3600 * 8),
+             lastFiredAt: now.addingTimeInterval(-3600 * 16),
+             lastRun: RoutineRun(status: "ROUTINE_RUN_STATUS_SUCCEEDED", sessionId: "cse_demoDone",
+                                 firedAt: now.addingTimeInterval(-3600 * 16),
+                                 finishedAt: now.addingTimeInterval(-3600 * 15)),
+             liveState: "idle", liveSessionId: "cse_demoDone")]
+}
+
 // The section's row order: anything waiting on approval first, then live routines before disabled
 // ones, then soonest next run. Pure, unit-tested.
 func routineListOrder(_ routines: [Routine]) -> [Routine] {
@@ -157,11 +205,13 @@ func routineListOrder(_ routines: [Routine]) -> [Routine] {
 let routineAPIHeaders = ["anthropic-beta": "ccr-triggers-2026-01-30",
                          "anthropic-version": "2023-06-01"]
 
-// Fetch the account's routines, then each enabled one's runs for worker_status. nil + a message
-// on failure, so the caller can keep the list it has (stale-while-error, same contract as
-// fetchArtifactFrames). The sessions calls are best-effort and sequential: one failing costs that
-// routine its live state, not the section. Call off the main thread.
-func fetchRoutines() -> (routines: [Routine]?, error: String?) {
+// Fetch the account's routines, then their runs for worker_status. nil + a message on failure, so
+// the caller can keep the list it has (stale-while-error, same contract as fetchArtifactFrames).
+// `previous` is the list already on screen: a routine whose sessions call fails keeps the live
+// state it had rather than losing it, because dropping to "no live state" turns an
+// approval-waiting row back into an ordinary one — a false all-clear on the one thing this
+// section exists to show. Sequential and off the main thread.
+func fetchRoutines(previous: [Routine] = []) -> (routines: [Routine]?, error: String?) {
     guard let token = claudeOAuthAccessToken() else {
         return (nil, L("トークンが読めない", "no oauth token"))
     }
@@ -173,15 +223,26 @@ func fetchRoutines() -> (routines: [Routine]?, error: String?) {
     }
     guard var routines = parseTriggers(body.flatMap({ try? JSONSerialization.jsonObject(with: $0) }))
     else { return (nil, L("形式が不明", "unexpected shape")) }
-    for i in routines.indices where routines[i].enabled {
-        let (s, b, _) = anthropicGET("/v1/code/sessions?trigger_id=\(routines[i].id)", token: token,
+    let carried = Dictionary(previous.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+    var attempts = 0, failures = 0
+    for i in routines.indices where routineNeedsSessionPass(routines[i]) {
+        attempts += 1
+        // The id comes from the server; encode it rather than trusting it to be URL-safe.
+        let id = routines[i].id.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
+            ?? routines[i].id
+        let (s, b, _) = anthropicGET("/v1/code/sessions?trigger_id=\(id)", token: token,
                                      extraHeaders: routineAPIHeaders)
-        guard s == 200,
-              let rows = parseRoutineSessions(b.flatMap({ try? JSONSerialization.jsonObject(with: $0) })),
-              let live = routineLiveState(rows: rows, lastRunSessionId: routines[i].lastRun?.sessionId)
-        else { continue }
+        let rows = s == 200
+            ? parseRoutineSessions(b.flatMap({ try? JSONSerialization.jsonObject(with: $0) }))
+            : nil
+        if rows == nil { failures += 1 }
+        let live = routineCarriedState(rows: rows, lastRunSessionId: routines[i].lastRun?.sessionId,
+                                       previous: carried[routines[i].id])
         routines[i].liveState = live.state
         routines[i].liveSessionId = live.sessionId
     }
-    return (routines, nil)
+    // Every sessions call failing means no routine's live state is current. Say so, so the section
+    // can dim what it carried instead of presenting it as fresh.
+    return (routines, attempts > 0 && failures == attempts
+            ? L("実行状況を取得できません", "run states unavailable") : nil)
 }
