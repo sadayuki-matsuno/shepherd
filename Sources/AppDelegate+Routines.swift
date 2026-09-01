@@ -65,6 +65,11 @@ extension AppDelegate {
     // Disclosure bar (count, plus the fetch stamp and ↻ when open, or the approval chip when
     // folded), then one row per routine.
     func routinesSectionViews() -> [NSView] {
+        // Fixture mode never fetches (see maybeRefreshRoutines), so the section could only ever
+        // render an empty "no routines" line — and dev/demo-board.sh's captures are what
+        // docs/assets ships. Leave the section out of a staged board entirely.
+        let env = ProcessInfo.processInfo.environment
+        guard env["SHEPHERD_SESSIONS_DIR"] == nil, env["SHEPHERD_PROJECTS_DIR"] == nil else { return [] }
         let collapsed = routinesBarCollapsed
         let toggle = badge("ROUTINES — \(routines.count)",
                            symbol: collapsed ? "chevron.right" : "chevron.down",
