@@ -167,13 +167,13 @@
     </p>
     <ul lang="en">
       <li><strong>Each row</strong> — a state glyph, the routine's name, its next run in your local time, and a mark for how the last run ended (✓ succeeded, ✗ failed, ⧗ still running). Hover a row for its cron expression and last run time. Click to open the latest run on claude.ai; right-click for the routine's own page or to copy the link.</li>
-      <li><strong>Waiting for approval</strong> — when a run stops at a permission prompt the row turns orange and says <span class="chip-demo" style="background:rgba(250,179,135,.16);color:var(--peach)">? needs approval</span>, exactly as a blocked session's card does. Fold the section and the count moves onto the bar, so a cloud agent waiting on you can't be hidden by tidying up.</li>
+      <li><strong>Waiting for approval</strong> — when a run stops at a permission prompt the row turns orange and says <span class="chip-demo" style="background:rgba(250,179,135,.16);color:var(--peach)">? needs approval</span>, exactly as a blocked session's card does. Fold the section and the count moves onto the bar; minimize the whole HUD and it moves onto the strip, beside the count of local sessions waiting on you. Neither way of tidying up can hide a cloud agent that needs an answer.</li>
       <li><strong>Disabled routines</strong> dim to half, the way an idle card does, and drop the schedule text.</li>
       <li><strong>Freshness</strong> — the list refreshes every couple of minutes whether the section is open or folded; the bar carries the fetch time and a ↻ for right now. A failed fetch keeps the list you had and says so rather than emptying the section.</li>
     </ul>
     <ul lang="ja">
       <li><strong>各行</strong> — 状態グリフ、routine 名、次回実行（ローカルタイム）、直近の実行結果マーク（✓ 成功 / ✗ 失敗 / ⧗ 実行中）。行にホバーすると cron 式と前回実行時刻が出ます。クリックで最新の実行を claude.ai で開き、右クリックで routine 自身のページを開いたり URL をコピーできます。</li>
-      <li><strong>承認待ち</strong> — 実行が権限プロンプトで止まると、行が桃色になり <span class="chip-demo" style="background:rgba(250,179,135,.16);color:var(--peach)">? 承認待ち</span> と表示されます（応答待ちセッションのカードと同じ扱いです）。セクションを畳むと件数がバー上に移るので、片付けたせいで待たされているクラウドエージェントを見落とすことはありません。</li>
+      <li><strong>承認待ち</strong> — 実行が権限プロンプトで止まると、行が桃色になり <span class="chip-demo" style="background:rgba(250,179,135,.16);color:var(--peach)">? 承認待ち</span> と表示されます（応答待ちセッションのカードと同じ扱いです）。セクションを畳むと件数はバー上に、HUD 全体を最小化するとストリップ上（ローカルの応答待ち件数の隣）に移ります。どちらの畳み方をしても、回答を待っているクラウドエージェントが隠れることはありません。</li>
       <li><strong>無効な routine</strong> は待機カードと同じく50%に減光し、次回実行の表示は消えます。</li>
       <li><strong>鮮度</strong> — 一覧は開いていても畳んでいても数分おきに更新され、バーに取得時刻と ↻（即時再取得）が出ます。取得に失敗してもセクションは空にならず、直前の一覧を保ったまま失敗を表示します。</li>
     </ul>
