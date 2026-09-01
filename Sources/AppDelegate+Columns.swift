@@ -1003,14 +1003,15 @@ extension AppDelegate {
         // measuring only what precedes the empty state pushed the ARTIFACTS section below the
         // fold in the fixed size modes.
         let artifactViews = artifactsSectionViews()
+        let routineViews = routinesSectionViews()
         views.append(sessionsSectionBar(rows: filtered))
         if sessionsSectionCollapsed {
             // Folded: the bar carries the summary; the board (and its status row) stays out.
         } else {
             if let status = status { views.append(status) }
             if let rows = filtered, rows.isEmpty {
-                (views + artifactViews).forEach { $0.layoutSubtreeIfNeeded() }
-                let chrome = views + artifactViews
+                (views + artifactViews + routineViews).forEach { $0.layoutSubtreeIfNeeded() }
+                let chrome = views + artifactViews + routineViews
                 let headerHeight = chrome.reduce(0) { $0 + $1.fittingSize.height }
                     + stack.spacing * CGFloat(max(0, chrome.count - 1))
                 views.append(emptyStateView(headerHeight: headerHeight))
@@ -1022,6 +1023,7 @@ extension AppDelegate {
             }
         }
         views.append(contentsOf: artifactViews)
+        views.append(contentsOf: routineViews)
         // Remember which sessions we've shown (new ones fade in next time) and their rendered state
         // (a change animates the rail colour) — B4. Updated after the body is built.
         if let rows = filtered {

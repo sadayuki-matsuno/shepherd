@@ -310,6 +310,10 @@ extension AppDelegate {
             maybeRefreshArtifacts(force: false)
             startArtifactScanGuarded()
         }
+        // Routines run in the cloud, so the API is their only source — fetched on a 120s guard
+        // even with the section folded (the bar keeps the count and the approval chip). Minimized
+        // draws no routine UI at all, so nothing is worth fetching for.
+        if !minimized { maybeRefreshRoutines(force: false) }
     }
 
     // Compare the bundle version against the latest GitHub release at most once a day, on its own

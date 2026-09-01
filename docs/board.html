@@ -103,21 +103,23 @@
       <li><strong>更新バッジ</strong> — 1日1回、最新の GitHub Release と自分のバージョンを比較し、新しいものがあると teal の <span class="chip-demo" style="background:rgba(148,226,213,.16);color:var(--teal)">更新 vX.Y.Z</span> チップが表示されます。クリックでリリースページが開くので、<code>brew upgrade --cask shepherd</code> で更新してください。</li>
     </ul>
 
-    <h2 lang="en">The two sections</h2>
-    <h2 lang="ja">2つのセクション</h2>
+    <h2 lang="en">The three sections</h2>
+    <h2 lang="ja">3つのセクション</h2>
     <p lang="en">
-      Below the header the board splits into two collapsible sections, each behind a
+      Below the header the board splits into three collapsible sections, each behind a
       <code>⌄ / ›</code> bar. <strong>SESSIONS</strong> holds the repository columns; folding it
       moves the status summary — the needs-input / working pills, and the quota alert when one is
       up — onto the bar itself, so nothing urgent goes dark while the board is tucked away.
-      <strong>ARTIFACTS</strong> is the shelf, described next. Both fold states persist.
+      <strong>ARTIFACTS</strong> is the shelf and <strong>ROUTINES</strong> your scheduled cloud
+      agents, both described next. All three fold states persist.
     </p>
     <p lang="ja">
-      ヘッダーの下で盤面は <code>⌄ / ›</code> バー付きの2つの折りたたみセクションに分かれます。
+      ヘッダーの下で盤面は <code>⌄ / ›</code> バー付きの3つの折りたたみセクションに分かれます。
       <strong>セッション</strong>はリポジトリ列の本体で、畳むと状態サマリ —
       応答待ち / 作業中のピルと、出ている場合はクォータ警告 — がバー上に移るので、
-      畳んでいる間も緊急な情報は消えません。<strong>ARTIFACTS</strong> は次で説明するシェルフです。
-      どちらの開閉状態も保存されます。
+      畳んでいる間も緊急な情報は消えません。<strong>ARTIFACTS</strong> は次で説明するシェルフ、
+      <strong>ROUTINES</strong> はスケジュール実行されるクラウドエージェントの一覧です。
+      3つとも開閉状態が保存されます。
     </p>
 
     <h2 id="shelf" lang="en">The artifact shelf</h2>
@@ -147,6 +149,33 @@
       <li><strong>ピン留め</strong> — 右クリック → <em>上位に固定</em>でブックマークになります: ピンマークが付き、常に最上位に並びます。ピンは保存されます。</li>
       <li><strong>一覧の出どころ</strong> — 2つの源のマージです: アカウント自身の Artifact 一覧（他のマシンや claude.ai 分もカバーしますが、返るのは直近更新の約50件だけ）と、このマシンのセッション transcript の増分走査（ここで公開したものを全部保持し、favicon とリポジトリ帰属を補います）。一度シェルフに載った Artifact が消えることはありません。唯一の穴は<em>他の</em>マシンで公開された古い Artifact です。</li>
       <li><strong>リデプロイパルス</strong> — ブラウザで開きっぱなしかもしれない Artifact をセッションが再公開すると、そのカードの Artifact バッジが琥珀色に点滅します: タブをリロードする合図です。</li>
+    </ul>
+
+    <h2 id="routines" lang="en">Routines</h2>
+    <h2 lang="ja">ROUTINES（ルーチン）</h2>
+    <p lang="en">
+      The ROUTINES section lists your <a href="https://claude.ai/code/routines">claude.ai
+      routines</a> — agents that run on a schedule in Anthropic's cloud instead of on this machine.
+      They have no process, no transcript and no terminal here, so they can't appear as cards; this
+      section is the whole of their presence on the board.
+    </p>
+    <p lang="ja">
+      ROUTINES セクションは <a href="https://claude.ai/code/routines">claude.ai の routine</a> —
+      このマシンではなく Anthropic のクラウドでスケジュール実行されるエージェント — の一覧です。
+      ローカルにはプロセスも transcript も端末も無いのでカードにはなりません。
+      盤面上での存在はこのセクションが全てです。
+    </p>
+    <ul lang="en">
+      <li><strong>Each row</strong> — a state glyph, the routine's name, its next run in your local time, and a mark for how the last run ended (✓ succeeded, ✗ failed, ⧗ still running). Hover a row for its cron expression and last run time. Click to open the latest run on claude.ai; right-click for the routine's own page or to copy the link.</li>
+      <li><strong>Waiting for approval</strong> — when a run stops at a permission prompt the row turns orange and says <span class="chip-demo" style="background:rgba(250,179,135,.16);color:var(--peach)">? needs approval</span>, exactly as a blocked session's card does. Fold the section and the count moves onto the bar, so a cloud agent waiting on you can't be hidden by tidying up.</li>
+      <li><strong>Disabled routines</strong> dim to half, the way an idle card does, and drop the schedule text.</li>
+      <li><strong>Freshness</strong> — the list refreshes every couple of minutes whether the section is open or folded; the bar carries the fetch time and a ↻ for right now. A failed fetch keeps the list you had and says so rather than emptying the section.</li>
+    </ul>
+    <ul lang="ja">
+      <li><strong>各行</strong> — 状態グリフ、routine 名、次回実行（ローカルタイム）、直近の実行結果マーク（✓ 成功 / ✗ 失敗 / ⧗ 実行中）。行にホバーすると cron 式と前回実行時刻が出ます。クリックで最新の実行を claude.ai で開き、右クリックで routine 自身のページを開いたり URL をコピーできます。</li>
+      <li><strong>承認待ち</strong> — 実行が権限プロンプトで止まると、行が桃色になり <span class="chip-demo" style="background:rgba(250,179,135,.16);color:var(--peach)">? 承認待ち</span> と表示されます（応答待ちセッションのカードと同じ扱いです）。セクションを畳むと件数がバー上に移るので、片付けたせいで待たされているクラウドエージェントを見落とすことはありません。</li>
+      <li><strong>無効な routine</strong> は待機カードと同じく50%に減光し、次回実行の表示は消えます。</li>
+      <li><strong>鮮度</strong> — 一覧は開いていても畳んでいても数分おきに更新され、バーに取得時刻と ↻（即時再取得）が出ます。取得に失敗してもセクションは空にならず、直前の一覧を保ったまま失敗を表示します。</li>
     </ul>
 
     <h2 lang="en">Card anatomy</h2>

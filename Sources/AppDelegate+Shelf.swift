@@ -11,6 +11,11 @@ import AppKit
 final class ShelfRowView: NSView {
     var onClick: (() -> Void)?
     var menuProvider: (() -> NSMenu?)?
+    var onHover: ((Bool) -> Void)?
+    // Resting and hover fills. Overridden by a routine row waiting on approval, which wears the
+    // blocked card's peach wash — hover-exit has to return to THAT, not to the default surface.
+    var baseColor = Cat.surface.withAlphaComponent(0.4)
+    var hoverColor = Cat.surface1.withAlphaComponent(0.5)
     private var tracking: NSTrackingArea?
     var baseAlpha: CGFloat = 1
     override var mouseDownCanMoveWindow: Bool { false }
@@ -27,10 +32,12 @@ final class ShelfRowView: NSView {
         addTrackingArea(t); tracking = t
     }
     override func mouseEntered(with event: NSEvent) {
-        layer?.backgroundColor = Cat.surface1.withAlphaComponent(0.5).cgColor
+        layer?.backgroundColor = hoverColor.cgColor
+        onHover?(true)
     }
     override func mouseExited(with event: NSEvent) {
-        layer?.backgroundColor = Cat.surface.withAlphaComponent(0.4).cgColor
+        layer?.backgroundColor = baseColor.cgColor
+        onHover?(false)
     }
 }
 
@@ -188,8 +195,8 @@ extension AppDelegate {
     // experiment and may be rejected.
 
     // A section's disclosure bar: the chevron+title badge is the click target; accessories
-    // right-align. Spans the board like the header rows do.
-    private func sectionRow(toggle: NSView, accessories: [NSView]) -> NSView {
+    // right-align. Spans the board like the header rows do. Shared with the ROUTINES section.
+    func sectionRow(toggle: NSView, accessories: [NSView]) -> NSView {
         let spacer = NSView()
         spacer.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .horizontal)
         spacer.setContentCompressionResistancePriority(NSLayoutConstraint.Priority(1), for: .horizontal)
