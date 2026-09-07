@@ -151,11 +151,18 @@ func shelfDateText(_ d: Date?) -> String {
 // the claude binary 2026-07-17). Without them the endpoint answers 404.
 let frameAPIHeaders = ["X-Frame-CP": "go", "X-Frame-Surface": "code", "X-Frame-Platform": "cli"]
 
-// Synchronous GET against the frames endpoint with the CLI's own header set. Call off main.
-func frameGET(_ path: String, token: String, extraHeaders: [String: String] = frameAPIHeaders)
-    -> (status: Int, body: Data?, netErr: String?) {
-    var req = URLRequest(url: URL(string: "https://api.anthropic.com" + path)!)
-    req.timeoutInterval = 20
+// Synchronous GET against api.anthropic.com carrying an explicit private-API header set — the
+// X-Frame-* trio here, the anthropic-beta/version pair the routines endpoints want
+// (Routines.swift). Call off main.
+func anthropicGET(_ path: String, token: String, extraHeaders: [String: String],
+                  timeout: TimeInterval = 20) -> (status: Int, body: Data?, netErr: String?) {
+    // Paths can carry server-supplied ids (a routine's trigger_id), so a malformed one must come
+    // back as a failed fetch, never a crash.
+    guard let url = URL(string: "https://api.anthropic.com" + path) else {
+        return (-1, nil, L("URL が不正", "malformed URL"))
+    }
+    var req = URLRequest(url: url)
+    req.timeoutInterval = timeout
     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     req.setValue("application/json", forHTTPHeaderField: "Accept")
     for (k, v) in extraHeaders { req.setValue(v, forHTTPHeaderField: k) }
@@ -166,7 +173,7 @@ func frameGET(_ path: String, token: String, extraHeaders: [String: String] = fr
         if let err = err { netErr = err.localizedDescription }
         sem.signal()
     }.resume()
-    _ = sem.wait(timeout: .now() + 22)
+    _ = sem.wait(timeout: .now() + timeout + 2)
     return (status, body, netErr)
 }
 
@@ -176,7 +183,8 @@ func fetchArtifactFrames() -> (frames: [FrameEntry]?, error: String?) {
     guard let token = claudeOAuthAccessToken() else {
         return (nil, L("トークンが読めない", "no oauth token"))
     }
-    let (status, body, netErr) = frameGET("/api/frame/frames?limit=50", token: token)
+    let (status, body, netErr) = anthropicGET("/api/frame/frames?limit=50", token: token,
+                                              extraHeaders: frameAPIHeaders)
     if let netErr = netErr { return (nil, netErr) }
     guard status == 200 else {
         return (nil, status == 401 ? L("要再認証（claude を起動）", "re-auth needed (run claude)") : "HTTP \(status)")
@@ -413,10 +421,11 @@ func artifactProbeAndExit() -> Never {
     guard let token = claudeOAuthAccessToken() else { w("PROBE: no oauth token"); exit(1) }
     // The X-Frame-* set is what the CLI sends (frameAPIHeaders); the bare call shows whether
     // they're required (without them: 404, measured 2026-07-17).
-    let (s1, b1, e1) = frameGET("/api/frame/frames?limit=3", token: token)
+    let (s1, b1, e1) = anthropicGET("/api/frame/frames?limit=3", token: token,
+                                    extraHeaders: frameAPIHeaders)
     w("PROBE x-frame-headers status=\(s1) neterr=\(e1 ?? "-")")
     w(String(String(decoding: b1 ?? Data(), as: UTF8.self).prefix(3000)))
-    let (s2, b2, _) = frameGET("/api/frame/frames?limit=3", token: token, extraHeaders: [:])
+    let (s2, b2, _) = anthropicGET("/api/frame/frames?limit=3", token: token, extraHeaders: [:])
     w("PROBE bare-auth status=\(s2)")
     w(String(String(decoding: b2 ?? Data(), as: UTF8.self).prefix(400)))
     if s1 == 200, let d = b1, let obj = try? JSONSerialization.jsonObject(with: d),

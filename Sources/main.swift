@@ -213,6 +213,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NST
     weak var artifactSearchField: NSSearchField?
     weak var artifactListStack: NSStackView?   // 検索・取得完了時に中身だけ差し替える
     var artifactScanAt = Date.distantPast      // インライン枠の走査トリガー（5分ガード）
+    // ROUTINES セクション（2026-09-01）: claude.ai の routine（クラウドで cron 実行されるエージェント）。
+    // ローカルには痕跡が無く API だけが源なので、盤面の他の行と違い取得状態そのものを持つ。
+    var routines: [Routine] = []
+    var routinesBarCollapsed = defaults.bool(forKey: "routinesBarCollapsed")
+    var routinesFetchedAt = Date.distantPast   // 120秒ガード（畳んでいても取得する）
+    var routinesFetching = false
+    var routinesRefreshPending = false         // 取得中に来た ↻ は捨てずに積んで完了直後にもう1周
+    var routinesError: String?                 // stale-while-error: 失敗しても一覧は残す
     // Hover tooltip popover (2026-07-15): anchored at the hovered control — the bottom hint line
     // proved invisible in practice for per-element details (glyph hover). Transient; closed on
     // hover-exit and defensively at every rebuild.

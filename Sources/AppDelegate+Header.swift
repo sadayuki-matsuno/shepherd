@@ -97,6 +97,23 @@ extension AppDelegate {
             }
         }
 
+        // Minimized hides the ROUTINES section along with the rest of the board, so a cloud agent
+        // stopped at a permission prompt would go completely dark — the one state the strip exists
+        // to surface. Mirror it next to the local needs-input count, at the same rank. (In the
+        // full layout the section's own bar carries this, so it isn't duplicated here.)
+        if minimized {
+            let waiting = routinesNeedingAction.count
+            if waiting > 0 {
+                header.addArrangedSubview(badge(routineApprovalLabel(waiting),
+                                                symbol: "questionmark.circle.fill",
+                                                fg: Cat.peach, bg: Cat.peach.withAlphaComponent(0.16),
+                                                tip: L("routine が承認を待っています — クリックで一覧",
+                                                       "a routine is waiting for approval — click for the list")) { [weak self] in
+                    self?.revealRoutines()
+                })
+            }
+        }
+
         // Extra-usage credits are burning right now (creditBurn): an amber chip in the pill row,
         // clicking through to the usage panel. Shown regardless of the dashboard toggle — money
         // moving is the one state that must never be discoverable-only.

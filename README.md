@@ -30,11 +30,12 @@ Shepherd sits in the corner of your screen and shows every Claude Code session o
 - **Right-click menu** — per-card actions: reply (answer a blocked agent inline — over zellij, or over the cc-daemon control socket for a background worker; a VS Code terminal accepts no outside keystrokes, so click the card and answer in the editor instead), remote-control, capture a screen region and send it to that agent, and close (`claude stop` for a background agent, SIGTERM for an interactive one; guarded so a dirty working tree never loses uncommitted work)
 - **Drop files onto a row** — copies them to a scratch dir and sends the paths (plus an optional message) to that agent
 - **Artifact shelf** — the board carries a collapsible ARTIFACTS section: a persistent, account-wide list of your Claude Artifacts with search, a repo filter, and bookmark-style pinning (right-click → pin to top). It merges two sources: the account's own artifact listing (covers other machines and claude.ai, marks deleted ones dimmed — note it only returns the ~50 most recently updated) and an incremental scan of local transcripts (keeps everything ever published here, adds the favicon and repo attribution). Click a row to open it; right-click to copy the URL. The sessions board itself folds behind its own bar too (the status summary moves onto the bar), and a card's Artifact badge flashes amber when the session redeploys an artifact you may have open in a browser tab
+- **Routines** — a collapsible ROUTINES section lists your [claude.ai routines](https://claude.ai/code/routines): the cron-scheduled agents that run in Anthropic's cloud rather than on this machine. Each row shows the routine's name, its next run in local time, and how the last one ended. A routine whose run has stopped at a permission prompt turns orange and says so — the same treatment a blocked session gets — and that count follows you: onto the section's bar when it's folded, and onto the minimized strip next to the local needs-input pill. A cloud agent waiting on you is as hard to miss as a local one. Click a row to open its latest run on claude.ai; right-click for the routine's own page
 - **Update badge** — once a day Shepherd compares itself against the latest GitHub release; when a newer one exists, an "update vX.Y.Z" chip appears in the header. Click it to open the release page, then update with `brew upgrade --cask shepherd`
 - **Zero deps** — plain Swift built with the Xcode Command Line Tools; no Xcode project, no packages
 
 <p align="center">
-  <img src="docs/assets/hud-en.png" width="760" alt="The Shepherd HUD: plan-usage bars in the header, a collapsible SESSIONS section with three repository columns — a blocked card showing its pending question in orange, working cards with model chips, Artifact badges and a nested subagent card — and a collapsible ARTIFACTS section with search, a repo filter and the artifact list">
+  <img src="docs/assets/hud-en.png" width="760" alt="The Shepherd HUD: plan-usage bars in the header, then three collapsible sections — SESSIONS with three repository columns (a blocked card showing its pending question in orange, working cards with model chips, Artifact badges and a nested subagent card), ARTIFACTS with search, a repo filter and the artifact list, and ROUTINES listing scheduled cloud agents, one of them orange and waiting for approval">
 </p>
 
 ## Requirements
@@ -73,6 +74,7 @@ Shepherd installs nothing into Claude Code. It reads what Claude Code already wr
 - the cc-daemon control socket — for background workers: their state, what they are doing this turn, and what a blocked one needs to be told (it also takes your reply).
 - the session's transcript — model, context usage, deliverable links, its AI-generated title, subagents, and API errors.
 - the `api.anthropic.com/api/oauth/usage` endpoint, read with Claude Code's own OAuth token — the plan-usage dashboard: 5-hour / weekly windows, extra-usage credit spend, and the plan-tier chip (via `/api/oauth/profile`). Refresh on demand with the dashboard's ↻ button; a failed fetch keeps the last good numbers up, dimmed. While extra-usage credits are actively burning (the spend counter grew between snapshots, or a limit window is exhausted with extra usage enabled) the credits zone glows amber and an amber "on credits" chip appears in the header. Minimizing the HUD keeps the usage gauges and the count pills — only the credits column is dropped from the strip.
+- the `api.anthropic.com/v1/code/triggers` and `/v1/code/sessions` endpoints, read with the same token — your routines and the state of their runs, which is the only way to see a cloud agent from here: a scheduled routine has no process, transcript or daemon job on this machine. Fetched every two minutes; a failed fetch keeps the last list, and the section simply says so.
 - `ps -wwEp <pid>` — the session's environment: which zellij session and pane it lives in, whether it runs in a VS Code-family integrated terminal (`TERM_PROGRAM` / `__CFBundleIdentifier` — the latter is also the exact `open -b` target, so forks like Cursor need no lookup table), and the `SHEPHERD_PARENT_SESSION_ID` a parent exported when it spawned the session, which is how child sessions nest under their parent. (This variable is Shepherd's own convention — export it yourself when one session launches another.)
 
 **Upgrading from a version that installed a hook?** Delete `~/.claude/hooks/shepherd-agent-status.sh` and `~/.claude/agent-status/`, and remove the `shepherd-agent-status.sh` entries from the `hooks` section of `~/.claude/settings.json`. (The `hooks/uninstall.sh` helper that automated this is gone — it's in the git history if you need it.)
@@ -88,6 +90,10 @@ defaults write com.sadayuki-matsuno.shepherd terminalApp Ghostty
 
 # Path to gh for PR badges; set to "" to disable PR lookup
 defaults write com.sadayuki-matsuno.shepherd ghPath /opt/homebrew/bin/gh
+
+# Start a board section folded. Normally set by clicking the section's bar, so this is only
+# useful for pinning a launch state: sessionsCollapsed / artifactsBarCollapsed / routinesBarCollapsed
+defaults write com.sadayuki-matsuno.shepherd routinesBarCollapsed -bool true
 ```
 
 UI language follows your system language (Japanese / English).

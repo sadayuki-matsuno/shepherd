@@ -268,6 +268,18 @@ extension AppDelegate {
     // sessions-registry files are on the FSEvents stream, so hook-less status flips push their
     // own refresh.)
 
+    // May an async completion rebuild the board right now? Every background repaint asks this —
+    // a rebuild recreates every view, which would close an open popover (its anchor goes away),
+    // drop the drop-target mid-drag, or destroy the ARTIFACTS search field mid-word. The artifact
+    // hold is TIME-based (2s past the last keystroke) rather than currentEditor(): a field that
+    // keeps the field editor while the user works elsewhere would suppress every board update
+    // indefinitely. One predicate because four hand-copied versions had already drifted apart.
+    func canRebuildNow() -> Bool {
+        replyPopover == nil && repoPickerPopover == nil && dropPopover == nil && helpPopover == nil
+            && Date().timeIntervalSince(lastArtifactTypeAt) > 2.0
+            && Date().timeIntervalSince(lastDragAt) > 1.0
+    }
+
     func refresh() {
         // Queue, don't drop: an FSEvents refresh arriving mid-refresh used to be discarded, so a
         // state change landing during a slow fetch stayed invisible until the 30s fallback timer.
@@ -283,17 +295,7 @@ extension AppDelegate {
             DispatchQueue.main.async {
                 self.lastRows = rows
                 self.updateReplyWaiting(rows: rows)
-                // Pause the row rebuild while a popover is open or a file drag is in progress
-                // — recreating the rows would destroy the anchor / drop-target views.
-                // The artifact-search hold is TIME-based (2s past the last keystroke), not
-                // currentEditor(): a field that keeps the field editor while the user works
-                // elsewhere would suppress rebuilds — and every board update — indefinitely.
-                if self.replyPopover == nil && self.repoPickerPopover == nil && self.dropPopover == nil
-                    && self.helpPopover == nil
-                    && Date().timeIntervalSince(self.lastArtifactTypeAt) > 2.0
-                    && Date().timeIntervalSince(self.lastDragAt) > 1.0 {
-                    self.rebuild(rows: rows)
-                }
+                if self.canRebuildNow() { self.rebuild(rows: rows) }
                 if self.deck != nil { self.renderDeck() }
                 // The fetch may have discovered a config dir we aren't watching yet (a session
                 // started under a new one); no-op when the set is unchanged.
@@ -310,6 +312,11 @@ extension AppDelegate {
             maybeRefreshArtifacts(force: false)
             startArtifactScanGuarded()
         }
+        // Routines run in the cloud, so the API is their only source — fetched on a 120s guard
+        // regardless of how the board is folded or minimized: the folded bar carries the count,
+        // and the minimized strip carries the approval chip. Anywhere the count can be seen, it
+        // must not be frozen.
+        maybeRefreshRoutines(force: false)
     }
 
     // Compare the bundle version against the latest GitHub release at most once a day, on its own
@@ -327,12 +334,7 @@ extension AppDelegate {
                 let update = latest.flatMap { isUpdateAvailable(latest: $0.tag, current: current) ? $0 : nil }
                 let changed = update?.tag != self.availableUpdate?.tag
                 self.availableUpdate = update
-                if changed, self.replyPopover == nil, self.repoPickerPopover == nil,
-                   self.dropPopover == nil, self.helpPopover == nil,
-                   Date().timeIntervalSince(self.lastArtifactTypeAt) > 2.0,
-                   Date().timeIntervalSince(self.lastDragAt) > 1.0 {
-                    self.rebuild(rows: self.lastRows)
-                }
+                if changed, self.canRebuildNow() { self.rebuild(rows: self.lastRows) }
             }
         }
     }
@@ -375,11 +377,7 @@ extension AppDelegate {
                 } else {
                     self.usageError = L("トークンが読めない", "no oauth token")
                 }
-                if self.replyPopover == nil && self.repoPickerPopover == nil && self.dropPopover == nil
-                    && self.helpPopover == nil
-                    && Date().timeIntervalSince(self.lastArtifactTypeAt) > 2.0 {
-                    self.rebuild(rows: self.lastRows)
-                }
+                if self.canRebuildNow() { self.rebuild(rows: self.lastRows) }
             }
         }
     }

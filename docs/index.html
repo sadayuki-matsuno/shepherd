@@ -95,8 +95,8 @@
       <a class="btn ghost" href="https://github.com/sadayuki-matsuno/shepherd"><span lang="en">Source on GitHub</span><span lang="ja">GitHub でソースを見る</span></a>
     </p>
 
-    <img class="shot" lang="en" src="assets/hud-en.png" alt="The Shepherd HUD: plan-usage bars in the header, a collapsible SESSIONS section with three repository columns — a blocked card showing its pending question in orange, working cards with model chips, Artifact badges and a nested subagent card — and a collapsible ARTIFACTS section with search, a repo filter and the artifact list" width="852">
-    <img class="shot" lang="ja" src="assets/hud-ja.png" alt="Shepherd の HUD: ヘッダーにプラン使用量バー、折りたたみ式のセッションセクションに3つのリポジトリ列 — 質問をオレンジで掲げる応答待ちカード、モデルチップや Artifact バッジ付きの作業中カード、ネストしたサブエージェントカード — その下に検索・リポジトリフィルター付きの ARTIFACTS セクション" width="852">
+    <img class="shot" lang="en" src="assets/hud-en.png" alt="The Shepherd HUD: plan-usage bars in the header, then three collapsible sections — SESSIONS with three repository columns (a blocked card showing its pending question in orange, working cards with model chips, Artifact badges and a nested subagent card), ARTIFACTS with search, a repo filter and the artifact list, and ROUTINES listing scheduled cloud agents, one of them orange and waiting for approval" width="852">
+    <img class="shot" lang="ja" src="assets/hud-ja.png" alt="Shepherd の HUD: ヘッダーにプラン使用量バー、その下に3つの折りたたみセクション — セッション（質問をオレンジで掲げる応答待ちカード、モデルチップや Artifact バッジ付きの作業中カード、ネストしたサブエージェントカードを含む3つのリポジトリ列）、検索・リポジトリフィルター付きの ARTIFACTS、スケジュール実行されるクラウドエージェントを並べた ROUTINES（1件はオレンジの承認待ち）" width="852">
     <p class="caption" lang="en">
       The HUD, one card per session: a blocked agent surfaces its question in orange; working cards
       carry permission-mode / model / runtime chips (zellij, VS Code, Ghostty, <code>claude -p</code> …),
@@ -120,6 +120,7 @@
       <li><strong>Cost &amp; capacity at a glance.</strong> Model chip and context gauge on every card, plan-usage bars for your 5-hour and weekly windows in the header.</li>
       <li><strong>Deliverables arrive as links.</strong> One unified PR + CI badge, plus every Artifact an agent publishes — reports and design docs land on the card as stable URLs, not scrollback.</li>
       <li><strong>An artifact shelf that outlives sessions.</strong> A collapsible ARTIFACTS section lists every Claude Artifact on your account — searchable, filterable by repo, pinnable — merged from the account's own listing and your local session history. <a href="board.html#shelf">The shelf →</a></li>
+      <li><strong>Your cloud routines, on the same board.</strong> A collapsible ROUTINES section lists the agents that run on a schedule in Anthropic's cloud, with their next run and last outcome — and one stopped at a permission prompt turns orange just like a local session. <a href="board.html#routines">Routines →</a></li>
       <li><strong>Spawn parallel work safely.</strong> The ＋ button creates an isolated git worktree and launches a fresh Claude session in it.</li>
       <li><strong>Optional Stream Deck mirror.</strong> A physical status panel — repo columns on keys, blocked sessions blink, press to jump. <a href="stream-deck.html">Stream Deck →</a></li>
     </ul>
@@ -130,6 +131,7 @@
       <li><strong>コストと容量がひと目で。</strong>全カードにモデルチップとコンテキストゲージ、ヘッダーには5時間/週間のプラン使用量バー。</li>
       <li><strong>成果物はリンクで届く。</strong>PR と CI は統合バッジ1つに、エージェントが公開した Artifact はすべてカード上のリンクに — レポートや設計書はスクロールバックではなく安定した URL で受け取れます。</li>
       <li><strong>セッションより長生きする Artifact シェルフ。</strong>折りたたみ式の ARTIFACTS セクションにアカウント上の Artifact を一覧 — 検索・リポジトリ絞り込み・ピン留めができ、アカウントの一覧とローカルのセッション履歴をマージして表示します。<a href="board.html#shelf">シェルフ →</a></li>
+      <li><strong>クラウドの routine も同じ盤面に。</strong>折りたたみ式の ROUTINES セクションに、Anthropic のクラウドでスケジュール実行されるエージェントを次回実行・前回結果つきで一覧。権限プロンプトで止まっているものはローカルのセッションと同じくオレンジになります。<a href="board.html#routines">ルーチン →</a></li>
       <li><strong>並列作業を安全に開始。</strong>＋ボタンが隔離された git worktree を作り、そこで新しい Claude セッションを起動します。</li>
       <li><strong>Stream Deck ミラー（任意）。</strong>物理ステータスパネル — キーにリポジトリ列、応答待ちは点滅、押せばジャンプ。<a href="stream-deck.html">Stream Deck →</a></li>
     </ul>

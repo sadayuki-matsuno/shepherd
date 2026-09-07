@@ -10,6 +10,7 @@ runCommandsTests()
 runClaudeUsageTests()
 runUpdateCheckTests()
 runArtifactIndexTests()
+runRoutinesTests()
 
 try? FileManager.default.removeItem(atPath: testTmpDir)
 
