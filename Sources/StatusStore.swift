@@ -26,7 +26,7 @@ var statusSeen: [String: (status: String, at: Date)] = [:]
 
 // key: session id. Model + context usage read from the transcript tail; refreshed at most
 // every ~20s (transcripts change slower than the refresh cadence). Guarded by factsLock.
-var contextCache: [String: (model: ModelInfo?, pct: Double?, advisor: ModelInfo?, at: Date)] = [:]
+var contextCache: [String: (ctx: TranscriptContext, at: Date)] = [:]
 
 // key: session id. Deliverable links accumulated from the transcript jsonl, plus the byte
 // offset already scanned (so each poll only reads newly-appended bytes — the incremental parse
@@ -37,7 +37,7 @@ var transcriptLinksCache: [String: (links: [AgentLink], offset: UInt64)] = [:]
 // key: session id (the lead's). Per-teammate latest idle_notification timestamps parsed from the
 // lead transcript, plus the byte offset already scanned (incremental, like transcriptLinksCache).
 // Guarded by factsLock.
-var teammateIdleCache: [String: (idleAt: [String: Date], offset: UInt64)] = [:]
+var teammateIdleCache: [String: (idleAt: [String: TeammateIdle], offset: UInt64)] = [:]
 
 // key: session id. When a delta scan last saw a RE-publish of an Artifact URL the session already
 // carried (a redeploy — same URL, new content). The card's Artifact badge glows amber briefly

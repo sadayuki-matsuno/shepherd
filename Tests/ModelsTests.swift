@@ -70,6 +70,13 @@ func runModelsTests() {
         expectEq(permissionModeChip("dontAsk")?.label, "⏵⏵ NO-ASK")
         expectEq(permissionModeChip("bypassPermissions")?.label, "BYPASS")
         expectEq(permissionModeChip("futureMode")?.label, "FUTUREMODE", "unknown mode passes through")
+        // "auto" is the interactive default since 2.1.284 — a known mode, with its own tint.
+        expectEq(permissionModeChip("auto")?.label, "AUTO")
+        expect(permissionModeChip("auto")?.color == Cat.overlay,
+               "auto is the new default, so it keeps default's plain grey — no hue of its own")
+        let known = ["plan", "acceptEdits", "dontAsk", "bypassPermissions"]
+        let tints = known.compactMap { permissionModeChip($0)?.color }
+        expectEq(Set(tints.map { $0.description }).count, tints.count, "every known mode's tint is distinct")
     }
 
     test("promptTitle") {
@@ -620,9 +627,23 @@ func runModelsTests() {
         expectEq(statusFromDaemon(job(state: "running", needs: "answer: A or B?")), "blocked",
                  "a waiting worker can report state=running with only needs set (measured 2026-07-11)")
         expectEq(statusFromDaemon(job(state: "blocked", needs: "answer: A or B?")), "blocked")
-        expectEq(statusFromDaemon(job(state: "running", needs: nil)), "working")
-        expectEq(statusFromDaemon(job(state: "running", needs: "")), "working", "empty needs is not blocked")
         expectEq(statusFromDaemon(job(state: "done", needs: nil)), "idle")
+        expectEq(statusFromDaemon(job(state: "queued", needs: nil)), "working",
+                 "other lifecycle words are unaffected — only running's ambiguity is special-cased")
+    }
+
+    test("statusFromDaemon: running with no needs is a lifecycle word, not a turn-state one (measured 2026-09-30)") {
+        func job(state: String, needs: String?) -> DaemonJob {
+            DaemonJob(short: "s", sessionId: "s", state: state, detail: nil, needs: needs, name: nil)
+        }
+        // A conversation moved to background with `/bg` (daemon list `source: "slash"`) sat at
+        // state "running", needs empty, for 31 hours after its last turn ended — the daemon just
+        // means "the process is still up", the same as it would while a turn IS running. With
+        // nothing to distinguish the two, statusFromDaemon abstains instead of guessing "working".
+        expectEq(statusFromDaemon(job(state: "running", needs: nil)), "unknown",
+                 "running alone is not evidence of a turn in flight — defer to the registry/CLI")
+        expectEq(statusFromDaemon(job(state: "running", needs: "")), "unknown",
+                 "empty needs is not blocked, and running alone is still not working either")
     }
 
     test("liveBlocked: a real-time source vetoes the transcript's blocked→idle recovery") {
@@ -645,12 +666,238 @@ func runModelsTests() {
         expectEq(mergedStatus(live: []), "unknown", "nothing to go on")
     }
 
+    test("mergedStatus+statusFromDaemon: a /bg-moved worker stuck at running defers to the registry, "
+         + "not the CLI's stale blocked (measured 2026-09-30)") {
+        // Real values observed on a worker /bg'd 31 hours earlier, with no turn run since: the daemon
+        // still says state "running" (source "slash") with no needs, `claude agents` calls it status
+        // idle / state "blocked" (its own "nothing queued, waiting for the next instruction"
+        // heuristic — not a live AskUserQuestion), and only the session's own registry file has the
+        // real answer: idle. This mirrors AgentFetch.swift's actual merge order (daemon, registry, CLI).
+        let job = DaemonJob(short: "b13e0661", sessionId: "s", state: "running", detail: "",
+                            needs: nil, name: "マージお願いします")
+        let idleReg = SessionRegistryEntry(pid: 1, sessionId: "s", cwd: "/x", kind: "background",
+                                           name: nil, status: "idle", waitingFor: nil,
+                                           startedAt: nil, updatedAt: nil)
+        let cliEntry = ClaudeAgentEntry(sessionId: "s", shortId: "s", isBackground: true, pid: 1,
+                                        rawStatus: "idle", rawState: "blocked", name: nil, cwd: "/x",
+                                        startedAt: nil)
+        expectEq(mergedStatus(live: [statusFromDaemon(job), statusFromRegistry(idleReg),
+                                     statusFromClaudeAgent(cliEntry)]),
+                 "idle", "the daemon abstains on running; the registry's idle wins over the CLI's stale blocked")
+
+        // A genuinely blocked worker (needs set) must still win outright over everything — the veto
+        // and the abstention are two different mechanisms, and only `needs` decides the former.
+        let blockedJob = DaemonJob(short: "b", sessionId: "s", state: "running", detail: nil,
+                                   needs: "confirm X or Y?", name: nil)
+        expectEq(mergedStatus(live: [statusFromDaemon(blockedJob), statusFromRegistry(idleReg),
+                                     statusFromClaudeAgent(cliEntry)]),
+                 "blocked", "a real open prompt still outranks everything, running or not")
+
+        // A worker whose turn really is in flight (registry busy) stays working — the fix only
+        // changes the no-signal case, not a live one.
+        let busyReg = SessionRegistryEntry(pid: 1, sessionId: "s", cwd: "/x", kind: "background",
+                                           name: nil, status: "busy", waitingFor: nil,
+                                           startedAt: nil, updatedAt: nil)
+        expectEq(mergedStatus(live: [statusFromDaemon(job), statusFromRegistry(busyReg),
+                                     statusFromClaudeAgent(cliEntry)]),
+                 "working", "the registry's busy is a real turn-state opinion and wins")
+    }
+
+    test("cliStatusAfterDaemonAbstains: a daemon-abstained row with no registry opinion never lands "
+         + "on the CLI's stale blocked (measured 2026-09-30)") {
+        // `claude agents`'s "blocked" for a background record measures, in practice, as "turn over,
+        // no live prompt, waiting for the next instruction" — not a real open AskUserQuestion. A real
+        // block is already covered by the daemon's `needs` and the registry's `waiting`, so once both
+        // of THOSE have abstained too, a bare CLI "blocked" is swapped for idle rather than parking a
+        // false "response needed" card that blockedResolved can never clear (its transcript check
+        // finds nothing pending to resolve — see blockedResolved in buildRow).
+        expectEq(cliStatusAfterDaemonAbstains(hasJob: true, daemonStatus: "unknown",
+                                              registryStatus: "unknown", cliStatus: "blocked"),
+                 "idle", "no registry entry yet (or one Shepherd couldn't classify) + a daemon that "
+                 + "abstained on a bare running: the CLI's blocked is stale, not a real prompt")
+        expectEq(cliStatusAfterDaemonAbstains(hasJob: true, daemonStatus: "blocked",
+                                              registryStatus: "unknown", cliStatus: "blocked"),
+                 "blocked", "the daemon's own needs-driven blocked is untouched — only a bare "
+                 + "abstention (daemonStatus \"unknown\") triggers the swap")
+        expectEq(cliStatusAfterDaemonAbstains(hasJob: true, daemonStatus: "unknown",
+                                              registryStatus: "idle", cliStatus: "blocked"),
+                 "blocked", "a live registry opinion means mergedStatus would never reach the CLI "
+                 + "anyway — nothing to swap, and this must not touch a CLI value mergedStatus ignores")
+        expectEq(cliStatusAfterDaemonAbstains(hasJob: false, daemonStatus: "unknown",
+                                              registryStatus: "unknown", cliStatus: "blocked"),
+                 "blocked", "no daemon job at all (an interactive or VSCode-panel row) is a different "
+                 + "case — existing transcript-based blocked handling owns that, leave the CLI alone")
+        expectEq(cliStatusAfterDaemonAbstains(hasJob: true, daemonStatus: "unknown",
+                                              registryStatus: "unknown", cliStatus: "working"),
+                 "working", "only a bare CLI blocked is swapped — every other CLI word passes through")
+    }
+
+    test("mergedStatus: composed with cliStatusAfterDaemonAbstains, a /bg-moved worker with no "
+         + "registry entry ends idle, not the CLI's stale blocked (measured 2026-09-30)") {
+        // The exact shape AgentFetch.swift's buildRow now composes: registry missing or unreadable
+        // (reg == nil, e.g. read before the file existed) collapses to "unknown" the same as an
+        // unclassifiable one, so both paths are covered by this one scenario.
+        let daemonStatus = statusFromDaemon(DaemonJob(short: "b13e0661", sessionId: "s",
+                                                       state: "running", detail: "", needs: nil,
+                                                       name: "マージお願いします"))
+        let cliEntry = ClaudeAgentEntry(sessionId: "s", shortId: "s", isBackground: true, pid: 1,
+                                        rawStatus: "idle", rawState: "blocked", name: nil, cwd: "/x",
+                                        startedAt: nil)
+        let cliStatus = cliStatusAfterDaemonAbstains(hasJob: true, daemonStatus: daemonStatus,
+                                                     registryStatus: "unknown",
+                                                     cliStatus: statusFromClaudeAgent(cliEntry))
+        expectEq(mergedStatus(live: [daemonStatus, "unknown", cliStatus]), "idle")
+
+        // A genuinely blocked worker (needs set) still wins outright, registry or not.
+        let blockedDaemonStatus = statusFromDaemon(DaemonJob(short: "b", sessionId: "s",
+                                                              state: "running", detail: nil,
+                                                              needs: "confirm X or Y?", name: nil))
+        let cliStatus2 = cliStatusAfterDaemonAbstains(hasJob: true, daemonStatus: blockedDaemonStatus,
+                                                       registryStatus: "unknown", cliStatus: "blocked")
+        expectEq(mergedStatus(live: [blockedDaemonStatus, "unknown", cliStatus2]), "blocked")
+    }
+
+    test("statusFromDaemon: \"adopted\" (a restarted supervisor's word for a surviving worker) is a "
+         + "lifecycle value too (measured 2026-09-30 21:43)") {
+        // After cc-daemon restarts, a worker it re-attaches to reports state "adopted" with detail
+        // "adopted from previous supervisor" and no needs — same shape as the "running" landmine
+        // (2026-09-30, earlier the same day): a word about the process's lifecycle, not about
+        // whether a turn is in flight.
+        func job(state: String, needs: String?) -> DaemonJob {
+            DaemonJob(short: "b13e0661", sessionId: "s", state: state,
+                     detail: "adopted from previous supervisor", needs: needs, name: nil)
+        }
+        expectEq(statusFromDaemon(job(state: "adopted", needs: nil)), "unknown",
+                 "adopted just means the worker survived a supervisor restart, not that a turn is "
+                 + "running — defer to the registry/CLI, same as running")
+        expectEq(statusFromDaemon(job(state: "adopted", needs: "confirm X or Y?")), "blocked",
+                 "needs still wins outright, adopted or not")
+    }
+
+    test("mergedStatus: an adopted worker with a real registry idle lands idle, not the CLI's stale "
+         + "blocked (measured 2026-09-30 21:43)") {
+        // Real values observed right after a cc-daemon restart: daemon state "adopted" / needs nil,
+        // registry idle, CLI status idle / state blocked (its own finished-background heuristic).
+        let job = DaemonJob(short: "b13e0661", sessionId: "s", state: "adopted",
+                            detail: "adopted from previous supervisor", needs: nil,
+                            name: "マージお願いします")
+        let idleReg = SessionRegistryEntry(pid: 1, sessionId: "s", cwd: "/x", kind: "background",
+                                           name: nil, status: "idle", waitingFor: nil,
+                                           startedAt: nil, updatedAt: nil)
+        let cliEntry = ClaudeAgentEntry(sessionId: "s", shortId: "s", isBackground: true, pid: 1,
+                                        rawStatus: "idle", rawState: "blocked", name: nil, cwd: "/x",
+                                        startedAt: nil)
+        expectEq(mergedStatus(live: [statusFromDaemon(job), statusFromRegistry(idleReg),
+                                     statusFromClaudeAgent(cliEntry)]),
+                 "idle", "the daemon abstains on adopted; the registry's idle wins")
+
+        // And when the registry itself has nothing to say (missing / unreadable): adopted's
+        // abstention is indistinguishable from running's to cliStatusAfterDaemonAbstains — it only
+        // checks daemonStatus == "unknown", so no separate wiring was needed for the new word.
+        let daemonStatus = statusFromDaemon(job)
+        let cliStatus = cliStatusAfterDaemonAbstains(hasJob: true, daemonStatus: daemonStatus,
+                                                     registryStatus: "unknown",
+                                                     cliStatus: statusFromClaudeAgent(cliEntry))
+        expectEq(mergedStatus(live: [daemonStatus, "unknown", cliStatus]), "idle")
+    }
+
+    test("claudeAgentRow: an adopted worker's supervisor detail doesn't overwrite the AI title "
+         + "(measured 2026-09-30 21:43)") {
+        let e = parseClaudeAgents(claudeAgentsFixture)[1]   // background, has an AI title
+        let adopted = DaemonJob(short: "s", sessionId: e.sessionId, state: "adopted",
+                                detail: "adopted from previous supervisor", needs: nil, name: nil)
+        let row = claudeAgentRow(e, updatedAt: nil, daemon: adopted)
+        expectEq(row.activity, "sleep then reply",
+                 "the AI title wins; the supervisor message never becomes the activity/title line")
+        let working = DaemonJob(short: "s", sessionId: e.sessionId, state: "running",
+                                detail: "writing tests", needs: nil, name: nil)
+        expectEq(claudeAgentRow(e, updatedAt: nil, daemon: working).activity, "writing tests",
+                 "a real detail still leads the activity line")
+    }
+
     test("statusFromAgentState: the socket's vocabulary joins the CLI's") {
-        expectEq(statusFromAgentState("running"), "working", "the socket's word for a busy worker")
+        expectEq(statusFromAgentState("running"), "working",
+                 "the generic 'running is active' mapping — still what the CLI means by it; the "
+                 + "daemon's own running is special-cased upstream in statusFromDaemon, where it's a "
+                 + "lifecycle word rather than a turn-state one")
         expectEq(statusFromAgentState("queued"), "working", "dispatched, not started — still 'going'")
         expectEq(statusFromAgentState("blocked"), "blocked", "passes through to the blocked lane")
         expectEq(statusFromAgentState("done"), "idle", "no unread concept: a finished agent is idle")
         expectEq(statusFromAgentState(""), "unknown")
+    }
+
+    test("statusFromAgentState: the rest of the 2.1.285 lifecycle vocabulary (2026-09-30)") {
+        // Transitional ["starting","resuming","adopted","crashed"], terminal ["done","failed","stopped"].
+        expectEq(statusFromAgentState("starting"), "unknown",
+                 "no turn has begun — abstain, so the registry's busy (if any) decides")
+        expectEq(statusFromAgentState("resuming"), "unknown", "same: a lifecycle transition, not a turn")
+        expectEq(statusFromAgentState("crashed"), "error", "the worker died — needs a look")
+        expectEq(statusFromAgentState("stopped"), "idle", "terminal, like done")
+        expectEq(statusFromAgentState("someFutureWord"), "someFutureWord",
+                 "unknown words still pass through so they show up as themselves")
+        func job(_ state: String) -> DaemonJob {
+            DaemonJob(short: "s", sessionId: "s", state: state, detail: nil, needs: nil, name: nil)
+        }
+        expectEq(statusFromDaemon(job("starting")), "unknown", "the daemon path abstains too")
+        expectEq(mergedStatus(live: [statusFromDaemon(job("resuming")), "working"]), "working",
+                 "an abstaining daemon no longer hides the registry's answer")
+        expectEq(statusFromDaemon(job("crashed")), "error")
+        expectEq(statusFromDaemon(job("stopped")), "idle")
+    }
+
+    test("liveStatus: claudeAgentRow composes the status exactly as buildRow does (2026-09-30)") {
+        // buildRow (AgentFetch) and claudeAgentRow used to assemble daemon → registry → CLI
+        // differently: daemon running + CLI blocked came out blocked here and idle in production.
+        // Both now go through liveStatus; this pins the row builder to it across the matrix.
+        let e = parseClaudeAgents(claudeAgentsFixture)[1]   // background worker
+        let blockedCli = ClaudeAgentEntry(sessionId: e.sessionId, shortId: e.shortId, isBackground: true,
+                                          pid: 1, rawStatus: "idle", rawState: "blocked", name: nil,
+                                          cwd: "/x", startedAt: nil)
+        let running = DaemonJob(short: "s", sessionId: e.sessionId, state: "running", detail: nil,
+                                needs: nil, name: nil)
+        expectEq(claudeAgentRow(blockedCli, updatedAt: nil, daemon: running).status, "idle",
+                 "daemon abstains + no registry + CLI's stale blocked → idle, same as production")
+        let jobs: [DaemonJob?] = [nil, running] + parseDaemonJobs(daemonListFixture).map { Optional($0) }
+        for cli in [e, blockedCli] + parseClaudeAgents(claudeAgentsFixture) {
+            for j in jobs {
+                expectEq(claudeAgentRow(cli, updatedAt: nil, daemon: j).status,
+                         liveStatus(daemon: j, registry: nil, cli: cli),
+                         "row builder and liveStatus agree (\(cli.rawState ?? "-") / \(j?.state ?? "no job"))")
+            }
+        }
+        let idleReg = SessionRegistryEntry(pid: 1, sessionId: "s", cwd: "/x", kind: "background",
+                                           name: nil, status: "idle", waitingFor: nil,
+                                           startedAt: nil, updatedAt: nil)
+        expectEq(liveStatus(daemon: running, registry: idleReg, cli: blockedCli), "idle",
+                 "a registry opinion outranks the CLI")
+    }
+
+    test("statusAfterTranscriptFallback: the transcript speaks only for job-less rows (2026-09-30)") {
+        // A background worker flushes its assistant lines when the turn completes, so its
+        // transcript tail lags a turn behind: a mid-turn worker would read as idle and grow the
+        // parked chip + stop menu. Same reason blocked is never read from it. A daemon row every
+        // live source abstained on stays "unknown" — more honest than a false idle.
+        var probed = false
+        expectEq(statusAfterTranscriptFallback("unknown", hasJob: true,
+                                               pending: { probed = true; return true },
+                                               turnActive: { probed = true; return false }), "unknown",
+                 "daemon row: neither blocked nor working/idle comes from its lagging transcript")
+        expect(!probed, "and the transcript isn't read at all for a daemon row")
+        expectEq(statusAfterTranscriptFallback("unknown", hasJob: false, pending: { false },
+                                               turnActive: { nil }), "unknown", "no transcript → still unknown")
+        expectEq(statusAfterTranscriptFallback("unknown", hasJob: false, pending: { true },
+                                               turnActive: { false }), "blocked",
+                 "a job-less (VS Code panel) row keeps its transcript-based blocked")
+        expectEq(statusAfterTranscriptFallback("unknown", hasJob: false, pending: { false },
+                                               turnActive: { true }), "working")
+        expectEq(statusAfterTranscriptFallback("unknown", hasJob: false, pending: { false },
+                                               turnActive: { false }), "idle")
+        var touched = false
+        expectEq(statusAfterTranscriptFallback("idle", hasJob: false,
+                                               pending: { touched = true; return true },
+                                               turnActive: { touched = true; return true }), "idle",
+                 "a status a live source gave is never overridden")
+        expect(!touched, "and the transcript isn't even read")
     }
 
     test("claudeAgentRow: the daemon's state wins over the CLI's, which was measured stale") {
@@ -664,9 +911,23 @@ func runModelsTests() {
         expectEq(claudeAgentRow(e, updatedAt: nil, daemon: blockedJob).status, "blocked",
                  "the socket sees the worker directly and outranks the CLI")
 
+        // "running" is different: it's a lifecycle word, not a turn-state one (statusFromDaemon), so
+        // a daemon reporting it abstains and the CLI's own opinion decides instead. Here that opinion
+        // happens to also be "working" — see the dedicated abstention test below for the case where
+        // it isn't.
         let runningJob = parseDaemonJobs(daemonListFixture)[0]
         expectEq(claudeAgentRow(e, updatedAt: nil, daemon: runningJob).status, "working",
-                 "the socket's 'running' maps onto our 'working'")
+                 "the daemon abstains on running; the CLI's own working carries it, same as no daemon at all")
+    }
+
+    test("claudeAgentRow: a daemon stuck at running abstains and the CLI's real status shows through "
+         + "(measured 2026-09-30)") {
+        // A /bg-moved worker whose turn ended long ago still reports daemon state "running" (see
+        // statusFromDaemon) — claudeAgentRow must not let that stale "running" hide the CLI's verdict.
+        let e = parseClaudeAgents(claudeAgentsFixture)[2]   // finished background record, CLI says idle
+        let runningJob = parseDaemonJobs(daemonListFixture)[0]   // state running, no needs
+        let row = claudeAgentRow(e, updatedAt: nil, daemon: runningJob)
+        expectEq(row.status, "idle", "the daemon's running is not a turn-state opinion; the CLI's idle wins")
     }
 
     test("claudeAgentRow: a live worker's daemon detail becomes the activity line, and needs rides along") {
@@ -903,6 +1164,49 @@ func runModelsTests() {
                  "description beats the bare type")
     }
 
+    test("recentTeammateReports: finished teammates' reports, newest report first, within the window") {
+        let now = Date(timeIntervalSince1970: 1_783_970_000)
+        func rec(_ name: String, working: Bool = false, result: String?, reportAgo: TimeInterval?,
+                 jsonlAgo: TimeInterval = 0) -> SubagentRecord {
+            var r = SubagentRecord(agentId: name, type: "general-purpose", name: name, working: working)
+            r.result = result
+            r.resultAt = reportAgo.map { now.addingTimeInterval(-$0) }
+            r.updatedAt = now.addingTimeInterval(-jsonlAgo)
+            return r
+        }
+        let subs = [
+            rec("old-jsonl-new-report", result: "newest", reportAgo: 60, jsonlAgo: 3000),
+            rec("new-jsonl-old-report", result: "older", reportAgo: 600, jsonlAgo: 10),
+            rec("stale", result: "too old", reportAgo: teammateReportWindow + 1),
+            rec("still-working", working: true, result: "earlier turn", reportAgo: 30),
+            rec("silent", result: nil, reportAgo: 30),
+        ]
+        let reports = recentTeammateReports(subs, now: now)
+        expectEq(reports.map { $0.name }, ["old-jsonl-new-report", "new-jsonl-old-report"],
+                 "ordered by the report's own idle_notification time, not the jsonl mtime; stale, "
+                 + "working and report-less teammates are left out")
+        expectEq(reports.first?.result, "newest")
+        let many = (0..<8).map { rec("t\($0)", result: "r\($0)", reportAgo: TimeInterval($0 * 10)) }
+        expectEq(recentTeammateReports(many, now: now).map { $0.name }, ["t0", "t1", "t2", "t3", "t4"],
+                 "capped at the 5 newest")
+        expectEq(teammateReportWindow, 1800, "30 minutes")
+    }
+
+    test("subagentChildRow: the agent's own transcript context (effort / fast / window) reaches its card") {
+        let parent = makeRow(sessionId: "p-4", status: "working", cwd: "/repo/main", pid: 42)
+        let rec = SubagentRecord(agentId: "z1", type: "general-purpose", working: true)
+        let ctx = TranscriptContext(model: modelInfo(from: "claude-sonnet-5"), pct: 0.1, advisor: nil,
+                                    window: 1_000_000, effort: "medium", fast: true)
+        let row = subagentChildRow(parent: parent, rec: rec, git: nil, context: ctx)
+        expectEq(row.effort, "medium", "a subagent's effort can differ from its parent's")
+        expect(row.fastMode, "fast mode rides along")
+        expectEq(row.contextWindowTokens, 1_000_000)
+        expectEq(row.model?.name, "SONNET")
+        expectEq(row.contextPct, 0.1)
+        let bare = subagentChildRow(parent: parent, rec: rec, git: nil)
+        expectNil(bare.effort); expect(!bare.fastMode, "no context, no fast mark"); expectNil(bare.contextWindowTokens)
+    }
+
     test("closeMethod: a subagent card offers no close — nothing external can stop it") {
         let parent = makeRow(sessionId: "p-3", cwd: "/repo/main", pid: 42)
         let rec = SubagentRecord(agentId: "y1", type: "general-purpose", working: true)
@@ -974,6 +1278,7 @@ func runModelsTests() {
         expectNil(lockGlyph(for: nil), "no mode → no instrument")
         expectNil(lockGlyph(for: "default"), "default → no instrument")
         expectNil(lockGlyph(for: "someFutureMode"), "unknown mode keeps the text-chip fallback")
+        expect(lockGlyph(for: "auto") != nil, "auto is a known mode → no fallback AUTO pill")
         expectEq(runtimeGlyph(backend: .zellij, runtime: "zellij"), "square.split.2x1")
         expectEq(runtimeGlyph(backend: .vscode, runtime: "VS Code"), "chevron.left.forwardslash.chevron.right")
         expectEq(runtimeGlyph(backend: .other, runtime: "claude -p"), "terminal")

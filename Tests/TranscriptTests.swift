@@ -148,18 +148,84 @@ func runTranscriptTests() {
 
     test("contextWindow: substring map, [1m] suffix, override, adaptive escalation") {
         expectEq(contextWindow(model: "claude-haiku-4-5-20251001"), 200_000)
-        expectEq(contextWindow(model: "claude-sonnet-5"), 200_000)
         expectEq(contextWindow(model: "claude-fable-5"), 1_000_000, "fable measured at 435k on this machine")
         expectEq(contextWindow(model: "claude-opus-4-8"), 1_000_000, "opus-4-8 measured at 948k")
         expectEq(contextWindow(model: "claude-opus-4-7"), 1_000_000, "opus-4-7 measured at 676k")
         expectEq(contextWindow(model: "claude-sonnet-5[1m]"), 1_000_000, "an explicit [1m] tag always wins")
         expectEq(contextWindow(model: nil), 200_000)
-        expectEq(contextWindow(model: "claude-sonnet-5", observedTotal: 250_000), 1_000_000,
+        expectEq(contextWindow(model: "claude-sonnet-4-5-20250929", observedTotal: 250_000), 1_000_000,
                  "observed usage above 200k disproves the 200k window")
-        expectEq(contextWindow(model: "claude-sonnet-5", observedTotal: 190_000), 200_000)
+        expectEq(contextWindow(model: "claude-sonnet-4-5-20250929", observedTotal: 190_000), 200_000)
         contextLimitOverrides = ["fable": 200_000]
         expectEq(contextWindow(model: "claude-fable-5"), 200_000, "defaults override beats the built-in map")
         contextLimitOverrides = [:]
+    }
+
+    test("contextWindow: every opus / sonnet from generation 5 on is 1M (2026-09-30)") {
+        // The official docs list opus-5 / opus-5-5 / sonnet-5 / sonnet-5-5 at 1M; the old map left
+        // them at 200k and an opus-5-5 session at ~188k/1M showed 89% on the board.
+        expectEq(contextWindow(model: "claude-opus-5-5"), 1_000_000)
+        expectEq(contextWindow(model: "claude-opus-5"), 1_000_000)
+        expectEq(contextWindow(model: "claude-sonnet-5"), 1_000_000)
+        expectEq(contextWindow(model: "claude-sonnet-5-5"), 1_000_000)
+        expectEq(contextWindow(model: "claude-opus-6-20270101"), 1_000_000, "a future generation stays 1M")
+        expectEq(contextWindow(model: "claude-sonnet-12"), 1_000_000, "two-digit generations too")
+        expectEq(contextWindow(model: "claude-fable-5-1"), 1_000_000)
+        // Generation 4 and older keep 200k (4-7 / 4-8 are the measured exceptions above).
+        expectEq(contextWindow(model: "claude-sonnet-4-5-20250929"), 200_000)
+        expectEq(contextWindow(model: "claude-opus-4-1-20250805"), 200_000)
+        // Old-style ids put the date right after the family name — "sonnet-20241022" must not
+        // read as generation 20241022.
+        expectEq(contextWindow(model: "claude-3-5-sonnet-20241022"), 200_000)
+        expectEq(contextWindow(model: "claude-3-opus-20240229"), 200_000)
+        expectEq(contextWindow(model: "claude-haiku-5"), 200_000, "haiku is not part of the 1M rule")
+    }
+
+    test("readTranscriptContext: an advisor turn's usage counts only the main model's last call") {
+        // With an advisor, the top-level usage is the SUM of iterations[] (message + advisor_message),
+        // so reading it straight double-counts — measured 2026-09-30: 144 lines averaging 198%.
+        let cwd = "/tmp/proj-ctx"
+        writeTranscript(cwd: cwd, sessionId: "ctx-iter", lines: [
+            #"{"type":"assistant","advisorModel":"claude-opus-5-5","message":{"model":"claude-opus-5-5","usage":{"input_tokens":10,"cache_read_input_tokens":380000,"cache_creation_input_tokens":10000,"iterations":[{"type":"message","input_tokens":5,"cache_read_input_tokens":180000,"cache_creation_input_tokens":5000},{"type":"advisor_message","input_tokens":0,"cache_read_input_tokens":10000,"cache_creation_input_tokens":0},{"type":"message","input_tokens":5,"cache_read_input_tokens":190000,"cache_creation_input_tokens":5000}]}}}"#,
+        ])
+        let r = readTranscriptContext(cwd: cwd, sessionId: "ctx-iter")
+        expectEq(r.pct, Double(195_005) / 1_000_000.0, "the LAST main-model iteration, not the sum")
+        expectEq(r.window, 1_000_000, "the denominator actually used rides along for the hover")
+        // No iterations → the top-level usage, as before.
+        writeTranscript(cwd: cwd, sessionId: "ctx-noiter", lines: [
+            #"{"type":"assistant","message":{"model":"claude-haiku-4-5-20251001","usage":{"input_tokens":100000,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}"#,
+        ])
+        expectEq(readTranscriptContext(cwd: cwd, sessionId: "ctx-noiter").pct, 0.5)
+        expectEq(readTranscriptContext(cwd: cwd, sessionId: "ctx-noiter").window, 200_000)
+        // iterations without any "message" element → fall back to the top level.
+        writeTranscript(cwd: cwd, sessionId: "ctx-advonly", lines: [
+            #"{"type":"assistant","message":{"model":"claude-haiku-4-5-20251001","usage":{"input_tokens":100000,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"iterations":[{"type":"advisor_message","input_tokens":1}]}}}"#,
+        ])
+        expectEq(readTranscriptContext(cwd: cwd, sessionId: "ctx-advonly").pct, 0.5)
+    }
+
+    test("readTranscriptContext: effort and fast mode from the latest main-chain line (2026-09-30)") {
+        let cwd = "/tmp/proj-ctx"
+        writeTranscript(cwd: cwd, sessionId: "ctx-effort", lines: [
+            #"{"type":"assistant","effort":"low","message":{"model":"claude-opus-5-5","usage":{"input_tokens":1,"speed":"fast"}}}"#,
+            #"{"type":"assistant","effort":"xhigh","perTurnEffort":"medium","message":{"model":"claude-opus-5-5","usage":{"input_tokens":1000,"speed":"standard"}}}"#,
+            #"{"type":"assistant","isSidechain":true,"effort":"max","message":{"model":"claude-haiku-4-5-20251001","usage":{"input_tokens":1,"speed":"fast"}}}"#,
+        ])
+        let r = readTranscriptContext(cwd: cwd, sessionId: "ctx-effort")
+        expectEq(r.effort, "xhigh", "top-level effort of the newest main-chain line; perTurnEffort is ignored")
+        expect(!r.fast, "speed standard → no fast mark")
+        writeTranscript(cwd: cwd, sessionId: "ctx-fast", lines: [
+            #"{"type":"assistant","effort":null,"message":{"model":"claude-haiku-4-5-20251001","usage":{"input_tokens":1,"speed":"fast"}}}"#,
+        ])
+        let f = readTranscriptContext(cwd: cwd, sessionId: "ctx-fast")
+        expectNil(f.effort, "haiku lines carry no effort (null)")
+        expect(f.fast, "usage.speed fast → fast mode")
+        writeTranscript(cwd: cwd, sessionId: "ctx-bare", lines: [
+            #"{"type":"assistant","message":{"model":"claude-haiku-4-5-20251001","usage":{"input_tokens":1}}}"#,
+        ])
+        let b = readTranscriptContext(cwd: cwd, sessionId: "ctx-bare")
+        expectNil(b.effort, "no effort key → nil")
+        expect(!b.fast, "no speed → not fast")
     }
 
     test("readTranscriptContext: model + context % from the last usage") {
@@ -169,10 +235,10 @@ func runTranscriptTests() {
             #"{"type":"assistant","message":{"model":"claude-fable-5","usage":{"input_tokens":50000,"cache_read_input_tokens":100000,"cache_creation_input_tokens":10000}}}"#,
             #"{"type":"user","message":{"content":"no usage here"}}"#,
         ])
-        let (model, pct, advisor) = readTranscriptContext(cwd: cwd, sessionId: "ctx-1")
-        expectEq(model?.name, "FABLE", "latest assistant message wins")
-        expectEq(pct, Double(160_000) / 1_000_000.0, "fable-5 divides by its 1M window, not 200k")
-        expectNil(advisor, "no advisorModel field → no advisor")
+        let ctx = readTranscriptContext(cwd: cwd, sessionId: "ctx-1")
+        expectEq(ctx.model?.name, "FABLE", "latest assistant message wins")
+        expectEq(ctx.pct, Double(160_000) / 1_000_000.0, "fable-5 divides by its 1M window, not 200k")
+        expectNil(ctx.advisor, "no advisorModel field → no advisor")
         writeTranscript(cwd: cwd, sessionId: "ctx-2", lines: [
             #"{"type":"assistant","message":{"model":"claude-haiku-4-5-20251001","usage":{"input_tokens":100000,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}"#,
         ])
@@ -488,13 +554,14 @@ func runTranscriptTests() {
         let now = Date()
         // The lead's transcript carries an idle_notification user record every time a teammate
         // ends a turn (measured 2026-07-14) — the only durable "this teammate is idle" fact.
-        func idleRecord(from: String, at: Date) -> String {
-            let inner = #"{\"type\":\"idle_notification\",\"from\":\"\#(from)\",\"timestamp\":\"\#(iso.string(from: at))\",\"idleReason\":\"available\"}"#
+        func idleRecord(from: String, at: Date, result: String? = nil) -> String {
+            let r = result.map { #",\"result\":\"\#($0)\""# } ?? ""
+            let inner = #"{\"type\":\"idle_notification\",\"from\":\"\#(from)\",\"timestamp\":\"\#(iso.string(from: at))\",\"idleReason\":\"available\"\#(r)}"#
             return #"{"type":"user","message":{"role":"user","content":"Another Claude session sent a message:\n<teammate-message teammate_id=\"\#(from)\" color=\"blue\">\n\#(inner)\n</teammate-message>\n\nThis came from another Claude session."}}"#
         }
         writeTranscript(cwd: cwd, sessionId: "subs", lines: [
             "{}",
-            idleRecord(from: "impl-mind", at: now.addingTimeInterval(-50)),
+            idleRecord(from: "impl-mind", at: now.addingTimeInterval(-50), result: "差分を実装しテストを通した"),
             idleRecord(from: "impl-redo", at: now.addingTimeInterval(-300)),
             idleRecord(from: "impl-cut", at: now.addingTimeInterval(-50)),
         ])
@@ -580,6 +647,12 @@ func runTranscriptTests() {
         expectEq(agents[2].type, "agent", "and falls back to a generic type")
         expect(!agents[3].working, "teammate text tail + fresher idle_notification → idle")
         expectEq(agents[3].activity, "実装完了しました")
+        expectEq(agents[3].result, "差分を実装しテストを通した",
+                 "the lead-side idle_notification's one-line report lands on the teammate record")
+        expect(agents[3].resultAt.map { abs($0.timeIntervalSince(now.addingTimeInterval(-50))) < 0.01 } ?? false,
+               "the report carries its own notification time (what the peek sorts by)")
+        expectNil(agents[7].result, "a notification without a result key leaves none")
+        expectNil(agents[0].result, "plain subagents have no idle_notification, so no report")
         expect(agents[4].working, "teammate text tail but NO idle_notification → still mid-turn")
         expect(agents[5].working, "teammate jsonl newer than its last idle_notification → re-activated")
         expect(!agents[6].working, "no notification but 2h silent → idle backstop")
@@ -623,7 +696,7 @@ func runTranscriptTests() {
             #"{"type":"assistant","message":{"content":[{"type":"text","text":"idle_notification について調査"}]}}"#,
         ])
         var times = teammateIdleTimes(cwd: cwd, sessionId: "idle-1")
-        expectEq(times["worker-a"], t1)
+        expectEq(times["worker-a"]?.at, t1)
         expectNil(times["worker-b"], "no notification yet")
         // Append: a newer notification for a, a first one for b. The second call reads the delta only.
         let path = ((claudeProjectsDir as NSString).appendingPathComponent(sanitizeCwd(cwd)) as NSString)
@@ -633,9 +706,35 @@ func runTranscriptTests() {
         fh.write(("\n" + idleRecord(from: "worker-a", at: t2) + "\n" + idleRecord(from: "worker-b", at: t2)).data(using: .utf8)!)
         try! fh.close()
         times = teammateIdleTimes(cwd: cwd, sessionId: "idle-1")
-        expectEq(times["worker-a"], t2, "the newest notification wins")
-        expectEq(times["worker-b"], t2, "appended notifications are picked up")
+        expectEq(times["worker-a"]?.at, t2, "the newest notification wins")
+        expectEq(times["worker-b"]?.at, t2, "appended notifications are picked up")
         expectEq(teammateIdleTimes(cwd: cwd, sessionId: "gone").count, 0, "no transcript → empty")
+    }
+
+    test("teammateIdleTimes: the notification's one-line result rides with it (2026-09-30)") {
+        let cwd = "/tmp/proj-idle-result"
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let t1 = Date(timeIntervalSince1970: 1_783_960_000)
+        let t2 = Date(timeIntervalSince1970: 1_783_961_000)
+        func idleRecord(from: String, at: Date, result: String?) -> String {
+            let r = result.map { #",\"result\":\"\#($0)\""# } ?? ""
+            return #"{"type":"user","message":{"role":"user","content":"<teammate-message teammate_id=\"\#(from)\">\n{\"type\":\"idle_notification\",\"from\":\"\#(from)\",\"timestamp\":\"\#(iso.string(from: at))\",\"idleReason\":\"available\"\#(r)}\n</teammate-message>"}}"#
+        }
+        writeTranscript(cwd: cwd, sessionId: "idle-r", lines: [
+            idleRecord(from: "worker-a", at: t1, result: "テスト追加完了"),
+            idleRecord(from: "worker-b", at: t1, result: "first report"),
+            idleRecord(from: "worker-b", at: t2, result: nil),
+            idleRecord(from: "worker-c", at: t1, result: nil),
+        ])
+        let times = teammateIdleTimes(cwd: cwd, sessionId: "idle-r")
+        expectEq(times["worker-a"]?.at, t1)
+        expectEq(times["worker-a"]?.result, "テスト追加完了", "the newest notification's report")
+        expectEq(times["worker-b"]?.at, t2)
+        expectNil(times["worker-b"]?.result,
+                  "a newer notification without a report clears the old one — it belongs to an earlier turn")
+        expectNil(times["worker-c"]?.result, "the older shape (no result key) still parses")
+        expectEq(times["worker-c"]?.at, t1)
     }
 
     test("transcriptTailValue: the newest permission-mode / last-prompt line wins") {

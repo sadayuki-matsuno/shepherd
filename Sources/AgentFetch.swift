@@ -101,10 +101,9 @@ func fetchAgents() -> [AgentRow] {
         let zellijPaneId = backend == .zellij ? env.zellijPaneId : nil
 
         // The daemon watches its worker directly; the registry is the session's own account of
-        // itself; the CLI is a 5s-cached snapshot with no word for blocked. First opinion wins.
-        var status = mergedStatus(live: [job.map(statusFromDaemon) ?? "unknown",
-                                         reg.map(statusFromRegistry) ?? "unknown",
-                                         statusFromClaudeAgent(e)])
+        // itself; the CLI is a 5s-cached snapshot with no word for blocked. First opinion wins
+        // (liveStatus — shared with claudeAgentRow so the two can't drift).
+        var status = liveStatus(daemon: job, registry: reg, cli: e)
         // A prompt dismissed with Ctrl+C leaves a finished record frozen at blocked; the transcript
         // proves it was answered. Never applied while a live source still sees the prompt open — a
         // background worker's transcript lags a turn behind, so it would clear a real block.
@@ -112,18 +111,16 @@ func fetchAgents() -> [AgentRow] {
            blockedResolved(cwd: cwd, sessionId: e.sessionId) { status = "idle" }
         // A VS Code extension session (entrypoint "claude-vscode") never writes a registry status, so
         // no live source ever reports blocked — yet its transcript records the open AskUserQuestion /
-        // ExitPlanMode like any session. Surface that as blocked. Gated to `unknown` (symmetric with
-        // the working/idle line below): a session whose registry / CLI / daemon spoke is already
-        // classified, and only a status-less one needs the transcript — this keeps a normal
+        // ExitPlanMode like any session. Surface that as blocked; and on the other axis, "working vs
+        // idle" from the transcript's turn shape. Never for a daemon row — its transcript lags a turn
+        // (statusAfterTranscriptFallback). Gated to `unknown`:
+        // a session whose registry / CLI / daemon spoke is already classified — this keeps a normal
         // interactive session (whose registry advances waiting→busy on an answer, possibly before the
         // transcript's answering record flushes) from flickering back to blocked.
-        if status == "unknown", job == nil, blockedPending(cwd: cwd, sessionId: e.sessionId) { status = "blocked" }
-        // Same VS Code extension gap on the other axis: with no registry / CLI status, "working vs
-        // idle" also has to come from the transcript (its turn-in-flight shape). Only when no live
-        // source spoke (status still unknown) and it isn't a daemon worker.
-        if status == "unknown", job == nil, let active = transcriptTurnActive(cwd: cwd, sessionId: e.sessionId) {
-            status = active ? "working" : "idle"
-        }
+        status = statusAfterTranscriptFallback(
+            status, hasJob: job != nil,
+            pending: { blockedPending(cwd: cwd, sessionId: e.sessionId) },
+            turnActive: { transcriptTurnActive(cwd: cwd, sessionId: e.sessionId) })
         // A turn that died on an API error leaves the session idle with nothing running; the
         // transcript's synthetic error message is the same event the StopFailure hook reported.
         if status == "idle", transcriptErrored(cwd: cwd, sessionId: e.sessionId) { status = "error" }
@@ -139,7 +136,7 @@ func fetchAgents() -> [AgentRow] {
         let statusSince = statusSeen[key]!.at
         factsLock.unlock()
 
-        let (model, contextPct, advisor) = transcriptCtx(cwd: cwd, sessionId: e.sessionId)
+        let ctx = transcriptCtx(cwd: cwd, sessionId: e.sessionId)
         let g = cwd.isEmpty ? GitFacts(isWorktree: false) : gitFacts(cwd: cwd)
         let dirName = (cwd as NSString).lastPathComponent
         let parentName = ((cwd as NSString).deletingLastPathComponent as NSString).lastPathComponent
@@ -168,7 +165,7 @@ func fetchAgents() -> [AgentRow] {
         // A background worker's `claude agents` name is its AI title and belongs on the activity
         // line; an interactive session's ("shepherd-c3") is a better label than the bare directory.
         let lastPrompt = transcriptTailValue(cwd: cwd, sessionId: e.sessionId, type: "last-prompt", field: "lastPrompt")
-        return AgentRow(sessionId: e.sessionId, model: model, advisor: advisor, contextPct: contextPct,
+        return AgentRow(sessionId: e.sessionId, model: ctx.model, advisor: ctx.advisor, contextPct: ctx.pct,
                         permissionMode: transcriptTailValue(cwd: cwd, sessionId: e.sessionId,
                                                             type: "permission-mode", field: "permissionMode"),
                         status: status,
@@ -178,7 +175,9 @@ func fetchAgents() -> [AgentRow] {
                         branch: g.branch, changedFiles: g.changed, issueNo: issueNo, prNo: g.prNo,
                         prUrl: g.prUrl, ciState: g.ciState, repoKey: g.repoKey, repoName: g.repoName,
                         isWorktree: g.isWorktree,
-                        activity: job?.detail
+                        // An adopted worker's detail is cc-daemon's fixed supervisor message
+                        // (2026-09-30), not the current turn — skipped by state, not by wording.
+                        activity: (job?.state == "adopted" ? nil : job?.detail)
                             ?? transcriptAITitle(cwd: cwd, sessionId: e.sessionId)
                             ?? e.aiTitle
                             ?? promptTitle(lastPrompt)
@@ -201,7 +200,8 @@ func fetchAgents() -> [AgentRow] {
                         termProgram: env.termProgram, entrypoint: reg?.entrypoint,
                         // The session's own env first (see envConfigDirs above); the registry file's
                         // location is the fallback for a row whose process env we couldn't read.
-                        configDir: env.configDir ?? reg?.configDir)
+                        configDir: env.configDir ?? reg?.configDir,
+                        effort: ctx.effort, fastMode: ctx.fast, contextWindowTokens: ctx.window)
     }
 
     // Each row's facts are dominated by subprocess / file IO, so build rows concurrently — wall-clock
@@ -227,19 +227,13 @@ func fetchAgents() -> [AgentRow] {
     for r in rows where r.pid != nil && !r.cwd.isEmpty {
         for rec in r.subagents where rec.working {
             let key = rec.transcriptKey(parent: r.sessionId)
-            let (model, contextPct, advisor) = transcriptCtx(cwd: r.cwd, sessionId: key)
             let agentCwd = rec.worktreePath ?? r.cwd
             // The subagent's activity is its own last tool call / message (subagentTail), read in
             // its language — not the caller-given task name. Fall back to the name only if its jsonl
             // said nothing (a just-spawned agent that hasn't acted yet).
             subagentRows.append(subagentChildRow(
                 parent: r, rec: rec, git: gitFacts(cwd: agentCwd),
-                // Model: the agent's own jsonl first (the resolved id), else the spawn-time alias
-                // from its meta — a just-spawned agent has no assistant line yet, and an inherited
-                // model has no meta entry either, so both sources are needed.
-                model: model ?? rec.model.flatMap(modelInfo),
-                advisor: advisor,
-                contextPct: contextPct,
+                context: transcriptCtx(cwd: r.cwd, sessionId: key),
                 activity: rec.activity ?? rec.description ?? rec.name,
                 links: extractLinksFromTranscript(cwd: r.cwd, sessionId: key)))
         }

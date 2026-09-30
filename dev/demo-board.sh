@@ -115,7 +115,7 @@ S = [
     # blocked: OPUS on PLAN in the main checkout, waiting 4m on a question (leftmost column)
     dict(sid=str(uuid.uuid4()), cwd=f"{src}/checkout", status="waiting",
          started=11*60, updated=4*60,
-         model="claude-opus-4-8", usage=(1200, 160000, 8800), mode="plan",
+         model="claude-opus-4-8", usage=(1200, 160000, 8800), mode="plan", effort="xhigh",
          title=T("決済APIの移行: checkout を新エンドポイントへ", "Migrate checkout to the new payments API"),
          prompt=T("checkout を新しい決済APIに移行して", "Migrate checkout to the new payments API"),
          question=dict(
@@ -126,7 +126,8 @@ S = [
     dict(sid=str(uuid.uuid4()), cwd=f"{src}/checkout-fix-auth-spec", status="busy",
          started=34*60, updated=8*60,
          model="claude-sonnet-5", advisor="claude-opus-4-8",
-         usage=(900, 120000, 7100), mode="acceptEdits",
+         # sonnet-5 is a 1M window — ~65% keeps a yellow context pie on the board
+         usage=(900, 640000, 7100), mode="acceptEdits", effort="medium",
          title=T("flaky な認証テストの修正", "Fix the flaky auth spec"),
          prompt=T("認証テストがたまに落ちるので直して", "The auth spec fails intermittently — fix it")),
     # working lead: FABLE on bypass, publishes an Artifact, runs an Explore subagent
@@ -146,10 +147,11 @@ S = [
                          desc=T("二重送信バグの原因調査レポート", "Duplicate-send root-cause report"),
                          url="https://claude.ai/code/artifact/aaaa1111-2222-3333-4444-555566667777")],
          subagent=dict(name=T("送信キュー呼び出し箇所の走査", "scan send-queue call sites"))),
-    # working: SONNET, young session, PR #101 with CI still running
+    # working: SONNET in the `auto` permission mode (the interactive default since 2.1.284),
+    # young session, PR #101 with CI still running
     dict(sid=str(uuid.uuid4()), cwd=f"{src}/lobby", status="busy",
          started=6*60, updated=90,
-         model="claude-sonnet-5", usage=(400, 17000, 600), mode="acceptEdits",
+         model="claude-sonnet-5", usage=(400, 17000, 600), mode="auto", effort="high",
          title=T("ロビーに観戦モードを追加", "Add spectator mode to the lobby"),
          prompt=T("ロビーに観戦モードを足してください", "Please add a spectator mode to the lobby")),
 ]
@@ -205,6 +207,8 @@ for i, s in enumerate(S):
                                          cache_creation_input_tokens=cc)))
     # Advisor pairing shows as a line-level advisorModel field (same as a real `--advisor` run).
     if "advisor" in s: final["advisorModel"] = s["advisor"]
+    # Reasoning effort is a line-level field too (top-level `effort`, measured 2026-09-30).
+    if "effort" in s: final["effort"] = s["effort"]
     if "question" in s:
         q = s["question"]
         final["message"]["content"] = [dict(

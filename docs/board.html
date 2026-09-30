@@ -193,11 +193,11 @@
       <ul class="legend">
         <li><span class="num">1</span><span><strong>Status banner</strong> — only on blocked or errored cards: what state it's in and for how long. Long-ignored questions get a “neglected” tag. (Status otherwise lives in the card's chrome: the 3px left rail color, a green breathing border while working, 50% dim when idle.)</span></li>
         <li><span class="num">2</span><span><strong>Where-it-runs glyph &amp; title</strong> — the leading silhouette says where the session lives (split panes = zellij, <code>&lt;/&gt;</code> = editor, terminal window, bare prompt = headless); hover it for details. The title is the AI-generated task name — the same one Claude Code gives the terminal tab. <code>#N</code> is the GitHub issue.</span></li>
-        <li><span class="num">3</span><span><strong>Instruments</strong> — the model as tier bars + name (1 bar = Haiku … 4 = Fable), and "→ speech bubble + name" when an <code>--advisor</code> model is paired (the arrow reads "consults"; hover it for the explanation). A session running under a non-default <code>CLAUDE_CONFIG_DIR</code> also carries a folder glyph + that dir's short name (hover for the full path); sessions in the default <code>~/.claude</code> show nothing there. The permission mode rides the title glyph's tint (lavender = plan, green = edits, amber = no-ask, red = bypass).</span></li>
+        <li><span class="num">3</span><span><strong>Instruments</strong> — the model as tier bars + name (1 bar = Haiku … 4 = Fable) followed by its reasoning effort in plain grey (<code>OPUS · XHIGH</code>; hover to see where it comes from), a small bolt when the latest reply ran in fast mode, and "→ speech bubble + name" when an <code>--advisor</code> model is paired (the arrow reads "consults"; hover it for the explanation). A session running under a non-default <code>CLAUDE_CONFIG_DIR</code> also carries a folder glyph + that dir's short name (hover for the full path); sessions in the default <code>~/.claude</code> show nothing there. The permission mode rides the title glyph's tint (lavender = plan, green = edits, amber = no-ask, red = bypass; default and the newer <code>auto</code> mode stay plain grey).</span></li>
         <li><span class="num">4</span><span><strong>The question</strong> — the exact decision the agent is waiting on. Right-click → <strong>Reply</strong> answers it from here (<a href="actions.html#reply">how</a>).</span></li>
         <li><span class="num">5</span><span><strong>Artifacts</strong> — one badge: a sole artifact opens on click; two or more collapse to the newest title + <code>(+N)</code> and clicking picks from the list. The PR (number + CI outcome) lives on the right-click menu.</span></li>
         <li><span class="num">6</span><span><strong>Meta</strong> — elapsed time, uncommitted changed-file count (<code>±6</code>), and the context-window pie at the right end (grey &lt;60%, yellow ≥60%, red ≥85%). Hover the pie for exact tokens left.</span></li>
-        <li><span class="num">7</span><span><strong>Family strip</strong> — appears when the session has children. Click to fold/unfold the child cards; hover while folded to peek at each child's status.</span></li>
+        <li><span class="num">7</span><span><strong>Family strip</strong> — appears when the session has children. Click to fold/unfold the child cards; hover it (folded or not) to peek at each child's status — and at the one-line completion reports of teammates that finished in the last 30 minutes. When no child card is left but such reports exist, the strip still shows as “✓ N finished reports”.</span></li>
       </ul>
     </div>
     <div class="anatomy" lang="ja">
@@ -213,11 +213,11 @@
       <ul class="legend">
         <li><span class="num">1</span><span><strong>ステータスバナー</strong> — 応答待ち・エラーのカードにだけ表示され、状態と継続時間を示します。長く放置された質問には「放置」タグが付きます。（それ以外の状態はカードの装飾が担います: 左端3pxレールの色、作業中の緑の明滅ボーダー、待機中の50%減光。）</span></li>
         <li><span class="num">2</span><span><strong>実行環境グリフ & タイトル</strong> — 先頭のシルエットがセッションの居場所です（分割ペイン=zellij、<code>&lt;/&gt;</code>=エディタ、窓付き端末、素のプロンプト=headless）。ホバーで詳細が出ます。タイトルは AI 生成のタスク名（Claude Code がターミナルタブに付けるものと同じ）。<code>#N</code> は GitHub issue 番号です。</span></li>
-        <li><span class="num">3</span><span><strong>計器</strong> — モデルは段数バー＋名前（1段=Haiku〜4段=Fable）、<code>--advisor</code> 付きなら「→ 吹き出し＋名前」（矢印=相談する先。ホバーで説明が出ます）。既定以外の <code>CLAUDE_CONFIG_DIR</code> で動いているセッションには、フォルダのグリフ＋その dir の短い名前も付きます（ホバーでフルパス）。既定の <code>~/.claude</code> のセッションには何も付きません。権限モードはタイトル先頭グリフの色が担います（lavender=plan、緑=edits、amber=no-ask、赤=bypass）。</span></li>
+        <li><span class="num">3</span><span><strong>計器</strong> — モデルは段数バー＋名前（1段=Haiku〜4段=Fable）に続けて推論 effort をグレーの文字で（<code>OPUS · XHIGH</code>。ホバーで値の出どころを表示）、最新の応答が fast mode なら小さな稲妻、<code>--advisor</code> 付きなら「→ 吹き出し＋名前」（矢印=相談する先。ホバーで説明が出ます）。既定以外の <code>CLAUDE_CONFIG_DIR</code> で動いているセッションには、フォルダのグリフ＋その dir の短い名前も付きます（ホバーでフルパス）。既定の <code>~/.claude</code> のセッションには何も付きません。権限モードはタイトル先頭グリフの色が担います（lavender=plan、緑=edits、amber=no-ask、赤=bypass。default と新しい <code>auto</code> モードは無地の灰）。</span></li>
         <li><span class="num">4</span><span><strong>質問</strong> — エージェントが待っている決定事項そのものです。右クリック → <strong>回答する</strong>でここから直接答えられます（<a href="actions.html#reply">方法</a>）。</span></li>
         <li><span class="num">5</span><span><strong>Artifact</strong> — バッジは常に1枚: 1件ならクリックで開き、2件以上は「最新タイトル（他+N）」になってクリックで一覧から選択します。PR（番号+CI結果）は右クリックメニューにあります。</span></li>
         <li><span class="num">6</span><span><strong>メタ情報</strong> — 経過時間、未コミットの変更ファイル数（<code>±6</code>）、右端にコンテキストの円グラフ（60%未満グレー・60%で黄・85%で赤）。円をホバーすると残りトークン数が出ます。</span></li>
-        <li><span class="num">7</span><span><strong>ファミリーストリップ</strong> — セッションに子がある場合に表示されます。クリックで子カードを畳む/展開でき、畳んだ状態でホバーすると各子の状態を覗き見できます。</span></li>
+        <li><span class="num">7</span><span><strong>ファミリーストリップ</strong> — セッションに子がある場合に表示されます。クリックで子カードを畳む/展開でき、ホバーすると（畳んでいても展開していても）各子の状態と、直近30分以内に終了した teammate の一行の完了報告を覗き見できます。子カードが残っていなくても、そうした報告があればストリップは「✓ 完了報告 N 件」として出ます。</span></li>
       </ul>
     </div>
     <p lang="en">
@@ -256,8 +256,10 @@
       <table>
         <tr><th>symbol</th><th>meaning</th></tr>
         <tr><td>#123</td><td>The GitHub issue being worked on (from the branch name or label).</td></tr>
-        <tr><td>glyph tint</td><td>The title-row glyph's color is Claude's permission mode: lavender = plan-only, green = edits auto-accepted, amber = no-ask, red = all prompts bypassed, grey = ask every time. Hover the glyph to read it in words.</td></tr>
+        <tr><td>glyph tint</td><td>The title-row glyph's color is Claude's permission mode: lavender = plan-only, green = edits auto-accepted, amber = no-ask, red = all prompts bypassed, grey = ask every time or <code>auto</code> (a classifier approves actions it judges safe — the default for interactive sessions since Claude Code 2.1.284, so like the old default it stays uncoloured). Hover the glyph to read it in words.</td></tr>
         <tr><td>tier bars + FABLE / OPUS / …</td><td>The model in use: filled bars are its capability tier (1 = Haiku … 4 = Fable), so heavy models read across the board without reading a word. A board where every card shows the same bars usually means nobody chose models — see <a href="playbook.html">the playbook</a>.</td></tr>
+        <tr><td>· XHIGH</td><td>The reasoning effort of the session's latest reply (low / medium / high / xhigh / max), read from the transcript — the one place the effective value is recorded, since the <code>effortLevel</code> setting doesn't always apply to newer models. Haiku has none, so nothing shows. Subagent and teammate cards show their own value, which can differ from the parent's.</td></tr>
+        <tr><td>⚡ bolt</td><td>The latest reply ran in fast mode (roughly 2.5× output speed at 2× the price). Absent in the normal standard mode.</td></tr>
         <tr><td>→ 💬 bubble + OPUS</td><td>The arrow reads "consults": the session runs with an <em>advisor</em> (<code>--advisor</code>): a stronger model consulted automatically at key decisions — the bubble marks "the one it talks to". Shown when configured, not a sign a consultation just happened. Teammate and subagent cards inherit it from their session.</td></tr>
         <tr><td>📁 folder + acme</td><td>The session lives under a non-default <code>CLAUDE_CONFIG_DIR</code> (<code>~/.claude-acme</code> → "acme") — a second account, usually. Cards with no such instrument are in the default <code>~/.claude</code>. Hover for the full path. Note the header's usage gauges and credit figures are the default account's, whichever config dirs the board is showing.</td></tr>
         <tr><td>title-row glyph</td><td>Where the session runs, as a small silhouette leading the title: split panes = zellij, <code>&lt;/&gt;</code> = a VS Code-family editor, a terminal window = a bare terminal app, a bare prompt = headless <code>claude -p</code>. Hover for the name and details. Background workers wear the BG chip instead.</td></tr>
@@ -277,8 +279,10 @@
       <table>
         <tr><th>記号</th><th>意味</th></tr>
         <tr><td>#123</td><td>対応中の GitHub issue（ブランチ名またはラベルから取得）。</td></tr>
-        <tr><td>グリフの色</td><td>タイトル先頭グリフの色が Claude の権限モードです: lavender=プランのみ、緑=編集自動承認、amber=NO-ASK、赤=全プロンプトバイパス、灰=毎回確認。ホバーで文字でも確認できます。</td></tr>
+        <tr><td>グリフの色</td><td>タイトル先頭グリフの色が Claude の権限モードです: lavender=プランのみ、緑=編集自動承認、amber=NO-ASK、赤=全プロンプトバイパス、灰=毎回確認 または <code>auto</code>（安全と判断した操作を分類器が自動承認 — Claude Code 2.1.284 から対話セッションの既定なので、従来の既定と同じく無地）。ホバーで文字でも確認できます。</td></tr>
         <tr><td>段数バー + FABLE / OPUS / …</td><td>使用中のモデル。バーの本数が能力段位（1=Haiku〜4=Fable）なので、重いモデルがどこで動いているかは単語を読まずに盤面一望で分かります。全カードが同じ段数なのは、たいてい誰もモデルを選んでいないサインです — <a href="playbook.html">群れの導き方</a>を参照。</td></tr>
+        <tr><td>· XHIGH</td><td>そのセッションの最新の応答の推論 effort（low / medium / high / xhigh / max）。transcript から読みます — 設定の <code>effortLevel</code> は新しいモデルに効かないことがあり、実際に使われた値が記録されるのはここだけです。Haiku には無いので何も出ません。サブエージェント・teammate のカードには、親とは違い得るそれぞれの値が出ます。</td></tr>
+        <tr><td>⚡ 稲妻</td><td>最新の応答が fast mode（出力 約2.5倍速・料金2倍）で動いたことを示します。通常の standard モードでは出ません。</td></tr>
         <tr><td>→ 💬 吹き出し + OPUS</td><td>矢印は「相談する先」: そのセッションが<em>アドバイザー</em>（<code>--advisor</code>）付きで動いています: 要所の判断だけ自動相談される相談役モデルで、吹き出しは「相談相手」の意。「構成されている」ことを示すもので、「いま相談した」印ではありません。teammate・サブエージェントのカードにはセッションの設定が継承されて表示されます。</td></tr>
         <tr><td>📁 フォルダ + acme</td><td>そのセッションが既定以外の <code>CLAUDE_CONFIG_DIR</code>（<code>~/.claude-acme</code> → 「acme」）で動いていることを示します — 多くの場合は第2アカウントです。この計器が無いカードは既定の <code>~/.claude</code> のセッションです。ホバーでフルパスが出ます。なお、ヘッダーの使用量ゲージとクレジットは、どの config dir を表示していても<strong>既定アカウントのもの</strong>です。</td></tr>
         <tr><td>タイトル先頭のグリフ</td><td>セッションの実行環境をタイトル行先頭の小さなシルエットで表示: 分割ペイン=zellij、<code>&lt;/&gt;</code>=VS Code 系エディタ、窓付き端末=素のターミナルアプリ、素のプロンプト=headless の <code>claude -p</code>。ホバーで名前と詳細が出ます。バックグラウンドワーカーは代わりに BG チップです。</td></tr>
@@ -312,12 +316,18 @@
     <p lang="en">
       The strip along a parent's bottom edge sums it up (<em>2 children · 1 working</em>, plus a blocked
       child's question when there is one). Click anywhere on the strip to fold or unfold the family;
-      hover while folded to peek without unfolding.
+      hover it to peek, folded or not. The peek also lists the one-line completion reports of teammates
+      that finished in the last 30 minutes (newest first, up to five) — their cards are gone by then.
+      Once every child card is gone, the strip stays while such reports exist, reading
+      <em>✓ 2 finished reports</em>; hover it to read them.
     </p>
     <p lang="ja">
       親カードの下端に沿ったストリップがそれを要約します（<em>子 2 件・稼働中 1</em>、加えて子が
       応答待ちならその質問も表示）。ストリップのどこをクリックしても家族を畳む/展開でき、畳んだ状態で
-      ホバーすると展開せずに覗き見できます。
+      ホバーすると覗き見できます（畳んでいても展開していても）。覗き見には、直近30分以内に終了した
+      teammate の一行の完了報告も新しい順に最大5件並びます（その時点でカードはもう消えています）。
+      子カードが全部消えても、そうした報告がある間はストリップが <em>✓ 完了報告 2 件</em> として残り、
+      ホバーで読めます。
     </p>
 
     <h2 lang="en">The archive lane</h2>

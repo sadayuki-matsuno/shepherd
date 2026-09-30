@@ -151,7 +151,11 @@ extension AppDelegate {
         // stack starts below it. A parent with child sessions reserves a strip along the bottom
         // for the family fold control + collapsed summary (2026-07-08).
         let bannerH: CGFloat = (row.status == "error" || row.status == "blocked") ? 19 : 0
-        let familyStripH: CGFloat = familyChildren.isEmpty ? 0 : 20
+        // Finished teammates have no card of their own, so their recent completion reports ride
+        // on the lead's family strip — which therefore also appears for a lead whose children are
+        // all gone, as long as some teammate reported within teammateReportWindow.
+        let teammateReports = recentTeammateReports(row.subagents)
+        let familyStripH: CGFloat = familyChildren.isEmpty && teammateReports.isEmpty ? 0 : 20
         NSLayoutConstraint.activate([
             rail.leadingAnchor.constraint(equalTo: card.leadingAnchor),
             rail.topAnchor.constraint(equalTo: card.topAnchor),
@@ -305,6 +309,14 @@ extension AppDelegate {
                 modeRow.addArrangedSubview(makeLabel(L("権限モード", "permission"), size: 10.5, color: Cat.subtext))
                 modeRow.addArrangedSubview(tinyChip(modeWord, color: mode?.color ?? Cat.overlay))
                 tip.addArrangedSubview(modeRow)
+                // "auto" is new enough (the interactive default since CLI 2.1.284) that the word
+                // alone doesn't say what it does.
+                if row.permissionMode == "auto" {
+                    tip.addArrangedSubview(makeLabel(
+                        L("分類器が安全と判断した操作を自動承認（2.1.284 から対話セッションの既定）",
+                          "a classifier auto-approves actions it judges safe (the interactive default since 2.1.284)"),
+                        size: 10.5, color: Cat.subtext))
+                }
                 return tip
             }
             let box = HoverView()
@@ -360,7 +372,7 @@ extension AppDelegate {
         // does, so it's worth seeing at a glance.
         let modeChip = permissionModeChip(row.permissionMode)
         if modeChip != nil || row.model != nil || row.advisor != nil || row.isBackground
-            || row.configDir != nil {
+            || row.configDir != nil || row.effort != nil || row.fastMode {
             let chips = NSStackView()
             chips.orientation = .horizontal
             chips.spacing = 8
@@ -371,14 +383,68 @@ extension AppDelegate {
             if let pm = modeChip, lockGlyph(for: row.permissionMode) == nil {
                 chips.addArrangedSubview(tinyChip(pm.label, color: pm.color))
             }
+            // Wrap an instrument-row element in a HoverView that shows `tip` as an anchored popover.
+            // Never the bottom hint line: it does render (verified 2026-08-23 with a warped cursor)
+            // but sits at the far bottom-left of the board in 10.5pt overlay grey, an eyeline away
+            // from the instrument being hovered — "invisible in practice for per-element details",
+            // which is what hoverTipPopover was introduced for. hideHoverTip(from:) lets only the
+            // view currently showing the tip close it (landmine list: enter/exit ordering).
+            func withHoverTip(_ v: NSView, _ tip: String) -> NSView {
+                let box = HoverView()
+                v.translatesAutoresizingMaskIntoConstraints = false
+                box.translatesAutoresizingMaskIntoConstraints = false
+                box.addSubview(v)
+                NSLayoutConstraint.activate([
+                    v.topAnchor.constraint(equalTo: box.topAnchor),
+                    v.bottomAnchor.constraint(equalTo: box.bottomAnchor),
+                    v.leadingAnchor.constraint(equalTo: box.leadingAnchor),
+                    v.trailingAnchor.constraint(equalTo: box.trailingAnchor),
+                ])
+                box.onHover = { [weak self, weak box] entered in
+                    guard let box = box else { return }
+                    if entered {
+                        self?.showHoverTip(makeLabel(tip, size: 11, color: Cat.text), from: box)
+                    } else {
+                        self?.hideHoverTip(from: box)
+                    }
+                }
+                return box
+            }
+            // Reasoning effort belongs to the model instrument ("OPUS · XHIGH"): placed right after
+            // it, 4pt apart, as its own label in subtext — the instrument row's colors are the
+            // model-tier vocabulary, so effort gets no hue of its own. With no model known it stands
+            // alone without the "·" joiner.
+            func effortView(_ effort: String, joined: Bool) -> NSView {
+                let label = makeLabel((joined ? "· " : "") + effort.uppercased(), size: 10.5,
+                                      weight: .bold, color: Cat.subtext, mono: true)
+                label.setContentCompressionResistancePriority(.required, for: .horizontal)
+                return withHoverTip(label, L("推論 effort: \(effort)（transcript の最新応答の値）",
+                                             "reasoning effort: \(effort) (from the latest reply in the transcript)"))
+            }
             // Model = tier bars + name (M1): capability reads as bar height across the board
             // without reading a word; the name confirms it. Unknown display names (tier 0)
             // fall back to the plain chip.
             if let m = row.model {
                 let tier = modelTier(m.name)
-                chips.addArrangedSubview(tier > 0
+                let modelView = tier > 0
                     ? instrument(tierBarsImage(tier: tier, color: m.color), m.name, color: m.color)
-                    : modelChip(m))
+                    : modelChip(m)
+                chips.addArrangedSubview(modelView)
+                if let effort = row.effort {
+                    chips.setCustomSpacing(4, after: modelView)
+                    chips.addArrangedSubview(effortView(effort, joined: true))
+                }
+            } else if let effort = row.effort {
+                chips.addArrangedSubview(effortView(effort, joined: false))
+            }
+            // Fast mode (usage.speed == "fast") — never observed on disk yet (only "standard",
+            // 2026-09-30), so this mark follows the CLI binary's own field, not a sighting.
+            if row.fastMode, let bolt = symbolImage("bolt.fill", size: 9, color: Cat.subtext) {
+                let iv = NSImageView(image: bolt)
+                iv.setContentHuggingPriority(.required, for: .horizontal)
+                iv.setContentCompressionResistancePriority(.required, for: .horizontal)
+                chips.addArrangedSubview(withHoverTip(iv, L("fast mode（出力2.5倍速・料金2倍）",
+                                                            "fast mode (≈2.5× output speed, 2× price)")))
             }
             // Advisor = "→ speech bubble + name": the arrow reads as "consults", so
             // MODEL → 💬 MODEL says who asks whom even when both tiers match (2026-07-15
@@ -392,63 +458,22 @@ extension AppDelegate {
                 chips.addArrangedSubview(arrow)
                 chips.setCustomSpacing(5, after: arrow)
                 if let prev = chips.arrangedSubviews.dropLast().last { chips.setCustomSpacing(5, after: prev) }
-                let adv = HoverView()
-                let inst = instrument(bubble, a.name, color: a.color)
-                inst.translatesAutoresizingMaskIntoConstraints = false
-                adv.translatesAutoresizingMaskIntoConstraints = false
-                adv.addSubview(inst)
-                NSLayoutConstraint.activate([
-                    inst.topAnchor.constraint(equalTo: adv.topAnchor),
-                    inst.bottomAnchor.constraint(equalTo: adv.bottomAnchor),
-                    inst.leadingAnchor.constraint(equalTo: adv.leadingAnchor),
-                    inst.trailingAnchor.constraint(equalTo: adv.trailingAnchor),
-                ])
-                let advTip = L("アドバイザー（--advisor）: 方針決定・停滞・完了前に自動相談される相談役モデル",
-                               "advisor (--advisor): consulted automatically before big decisions, when stuck, and before finishing")
-                adv.onHover = { [weak self, weak adv] entered in
-                    guard let v = adv else { return }
-                    if entered {
-                        let l = makeLabel(advTip, size: 11, color: Cat.text)
-                        self?.showHoverTip(l, from: v)
-                    } else { self?.hideHoverTip(from: v) }
-                }
-                chips.addArrangedSubview(adv)
+                chips.addArrangedSubview(withHoverTip(
+                    instrument(bubble, a.name, color: a.color),
+                    L("アドバイザー（--advisor）: 方針決定・停滞・完了前に自動相談される相談役モデル",
+                      "advisor (--advisor): consulted automatically before big decisions, when stuck, and before finishing")))
             }
             // Which CLAUDE_CONFIG_DIR this session lives under — shown ONLY for a non-default one
             // (a second account's sessions sit on the same board as the first's, and nothing else
             // on the card tells them apart). Drawn in subtext, not a tier color: the instrument
-            // row's colors already mean "model tier", and identity is not a signal. Hover puts the
-            // full path on the hint line, like the runtime glyph and the context pie.
+            // row's colors already mean "model tier", and identity is not a signal. Hover shows
+            // the full path.
             if let configDir = row.configDir,
                let img = symbolImage("folder.badge.person.crop", size: 9, color: Cat.subtext) {
-                let box = HoverView()
-                let inst = instrument(img, configDirLabel(configDir), color: Cat.subtext)
-                inst.translatesAutoresizingMaskIntoConstraints = false
-                box.translatesAutoresizingMaskIntoConstraints = false
-                box.addSubview(inst)
-                NSLayoutConstraint.activate([
-                    inst.topAnchor.constraint(equalTo: box.topAnchor),
-                    inst.bottomAnchor.constraint(equalTo: box.bottomAnchor),
-                    inst.leadingAnchor.constraint(equalTo: box.leadingAnchor),
-                    inst.trailingAnchor.constraint(equalTo: box.trailingAnchor),
-                ])
                 let path = (configDir as NSString).abbreviatingWithTildeInPath
-                let tip = L("設定ディレクトリ: \(path)", "config dir: \(path)")
-                // The tip is an anchored popover, NOT the bottom hint line. The line does fire here
-                // (verified 2026-08-23 with a warped cursor: it renders the path correctly) but it
-                // sits at the far bottom-left of the board in 10.5pt overlay grey, an eyeline away
-                // from the instrument being hovered — the same "invisible in practice for
-                // per-element details" this popover was introduced for (see hoverTipPopover), and
-                // why the advisor instrument beside this one uses it too.
-                box.onHover = { [weak self, weak box] entered in
-                    guard let box = box else { return }
-                    if entered {
-                        self?.showHoverTip(makeLabel(tip, size: 11, color: Cat.text), from: box)
-                    } else {
-                        self?.hideHoverTip(from: box)
-                    }
-                }
-                chips.addArrangedSubview(box)
+                chips.addArrangedSubview(withHoverTip(
+                    instrument(img, configDirLabel(configDir), color: Cat.subtext),
+                    L("設定ディレクトリ: \(path)", "config dir: \(path)")))
             }
             if row.isBackground { chips.addArrangedSubview(tinyChip("BG", color: Cat.mauve)) }
             // (The runtime chip moved to the title row as a leading glyph, 2026-07-15.)
@@ -547,9 +572,10 @@ extension AppDelegate {
             pie.layer?.addSublayer(track)
             pie.layer?.addSublayer(wedge)
             let pctLabel = metaLabel("\(Int(p * 100))%", color: color)
-            // Remaining tokens against the model's real window (1M for fable/opus — 200k was
-            // wrong for them and pinned the pie at 100%).
-            let windowK = contextWindow(model: row.model?.raw) / 1000
+            // Remaining tokens against the window contextPct was actually divided by — re-deriving
+            // it from the model id here lacks the observed total and could print "200k" for a
+            // session the transcript read already promoted to 1M.
+            let windowK = (row.contextWindowTokens ?? contextWindow(model: row.model?.raw)) / 1000
             let remaining = Int(Double(windowK) * (1 - p))
             let ctxHint = L("コンテキスト \(Int(p * 100))%（窓 \(windowK)k）・ 残り \(remaining)k tokens",
                             "context \(Int(p * 100))% of \(windowK)k · \(remaining)k tokens left")
@@ -591,9 +617,12 @@ extension AppDelegate {
         // the card's bottom — fold caret + child/working counts, plus (when collapsed) the children's
         // status dots and the most-urgent child's one-liner, absorbing the old separate summary card.
         // The whole strip toggles the fold via a transparent full-size button overlay (the card's
-        // hitTest only lets NSButton descendants keep their clicks); hovering it while collapsed
-        // opens the family peek. Replaces the old top-right "⌄N" toggle.
-        if !familyChildren.isEmpty {
+        // hitTest only lets NSButton descendants keep their clicks); hovering it opens the family
+        // peek (folded or unfolded — the peek is also where finished teammates' reports live).
+        // Replaces the old top-right "⌄N" toggle. With no child left but recent teammate reports,
+        // the strip reads "✓ N finished" instead and only peeks (nothing to fold).
+        if !familyChildren.isEmpty || !teammateReports.isEmpty {
+            let hasChildren = !familyChildren.isEmpty
             let sid = row.sessionId
             let strip = NSView()
             strip.wantsLayer = true
@@ -607,15 +636,19 @@ extension AppDelegate {
             if forkCount > 0 { parts.append(L("fork \(forkCount)", forkCount == 1 ? "1 fork" : "\(forkCount) forks")) }
             if realChildren > 0 { parts.append(L("子 \(realChildren) 件", realChildren == 1 ? "1 child" : "\(realChildren) children")) }
             if familyWorking > 0 { parts.append(L("稼働中 \(familyWorking)", "\(familyWorking) working")) }
-            let counts = symbolLabel(familyCollapsed ? "chevron.right" : "chevron.down",
-                                     parts.joined(separator: L(" ・ ", " · ")), size: 10.5, weight: .bold,
-                                     color: familyWorking > 0 ? Cat.green : Cat.subtext)
+            let n = teammateReports.count
+            let counts = hasChildren
+                ? symbolLabel(familyCollapsed ? "chevron.right" : "chevron.down",
+                              parts.joined(separator: L(" ・ ", " · ")), size: 10.5, weight: .bold,
+                              color: familyWorking > 0 ? Cat.green : Cat.subtext)
+                : symbolLabel("checkmark.circle", L("完了報告 \(n) 件", n == 1 ? "1 finished report" : "\(n) finished reports"),
+                              size: 10.5, weight: .bold, color: Cat.subtext, symbolColor: Cat.green)
             counts.setContentCompressionResistancePriority(.required, for: .horizontal)
             let content = NSStackView(views: [counts])
             content.orientation = .horizontal
             content.spacing = 6
             content.alignment = .centerY
-            if familyCollapsed {
+            if familyCollapsed && hasChildren {
                 // Status dots + the most-urgent child's headline, straight from the old summary card.
                 let dots = NSStackView()
                 dots.orientation = .horizontal; dots.spacing = 3
@@ -652,18 +685,18 @@ extension AppDelegate {
             let overlay = HoverButton(title: "")
             overlay.isBordered = false
             overlay.target = overlay; overlay.action = #selector(HoverButton.fire)
-            overlay.onPress = { [weak self] in self?.toggleFamily(sid) }
+            overlay.onPress = { [weak self] in if hasChildren { self?.toggleFamily(sid) } }
             let children = familyChildren
+            let reports = teammateReports.map { (name: $0.name, result: $0.result) }
             overlay.onHover = { [weak self, weak strip] entered in
                 guard let self = self else { return }
                 self.setHint(entered
-                    ? (familyCollapsed ? L("クリックで子カードを展開", "click to unfold the children")
-                                       : L("クリックで子カードを折りたたむ", "click to fold the children"))
+                    ? (!hasChildren ? L("ホバーで teammate の完了報告を表示", "hover to read the teammates' reports")
+                       : familyCollapsed ? L("クリックで子カードを展開", "click to unfold the children")
+                                         : L("クリックで子カードを折りたたむ", "click to fold the children"))
                     : nil)
-                if familyCollapsed {
-                    if entered, let s = strip { self.showFamilyPeek(children: children, from: s) }
-                    else { self.scheduleFamilyPeekClose() }
-                }
+                if entered, let s = strip { self.showFamilyPeek(children: children, reports: reports, from: s) }
+                else if !entered { self.scheduleFamilyPeekClose() }
             }
             overlay.translatesAutoresizingMaskIntoConstraints = false
             strip.addSubview(overlay)
