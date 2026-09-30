@@ -411,12 +411,20 @@ extension AppDelegate {
                 return box
             }
             // Reasoning effort belongs to the model instrument ("OPUS · XHIGH"): placed right after
-            // it, 4pt apart, as its own label in subtext — the instrument row's colors are the
-            // model-tier vocabulary, so effort gets no hue of its own. With no model known it stands
-            // alone without the "·" joiner.
+            // it, 4pt apart. The label (joiner "·" included — one NSTextField, one color) takes a
+            // heat hue by level via effortColor() in Models.swift: low=grey, medium=unchanged
+            // subtext, high=green, xhigh=yellow, max=amber (user decision, 2026-10-01 — a readable
+            // five-step scale was judged more valuable than reserving hues). This deliberately
+            // collides with other vocabulary already on the board: yellow also means "context-window
+            // warning", green also means "working", and amber also marks the dontAsk permission
+            // glyph and the uncommitted dog-ear. It also puts HAIKU's own tier color (overlay) on
+            // any row showing "low" effort, purely by coincidence of value — Haiku itself never
+            // carries an effort value, so this never actually fires, but it's worth knowing if that
+            // changes. All accepted; none of this is a bug. With no model known it stands alone
+            // without the "·" joiner.
             func effortView(_ effort: String, joined: Bool) -> NSView {
                 let label = makeLabel((joined ? "· " : "") + effort.uppercased(), size: 10.5,
-                                      weight: .bold, color: Cat.subtext, mono: true)
+                                      weight: .bold, color: effortColor(effort), mono: true)
                 label.setContentCompressionResistancePriority(.required, for: .horizontal)
                 return withHoverTip(label, L("推論 effort: \(effort)（transcript の最新応答の値）",
                                              "reasoning effort: \(effort) (from the latest reply in the transcript)"))

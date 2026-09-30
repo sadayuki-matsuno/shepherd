@@ -79,6 +79,21 @@ func runModelsTests() {
         expectEq(Set(tints.map { $0.description }).count, tints.count, "every known mode's tint is distinct")
     }
 
+    // effortColor (2026-10-01): a five-level heat scale, user decision — intentionally overlaps
+    // context-warning yellow and working green rather than inventing new hues.
+    test("effortColor") {
+        expect(effortColor("low") == Cat.overlay, "low = grey")
+        expect(effortColor("medium") == Cat.subtext, "medium = unchanged plain subtext")
+        expect(effortColor("high") == Cat.green, "high = green")
+        expect(effortColor("xhigh") == Cat.yellow, "xhigh = yellow")
+        expect(effortColor("max") == Cat.amber, "max = amber")
+        expect(effortColor("future") == Cat.subtext, "unknown value falls back to subtext")
+        expect(effortColor("") == Cat.subtext, "empty falls back to subtext")
+        let levels = ["low", "medium", "high", "xhigh", "max"]
+        let colors = levels.map { effortColor($0) }
+        expectEq(Set(colors.map { $0.description }).count, colors.count, "every known level's color is distinct")
+    }
+
     test("promptTitle") {
         expectNil(promptTitle(nil))
         expectNil(promptTitle(""))

@@ -84,6 +84,23 @@ func modelTier(_ name: String) -> Int {
     }
 }
 
+// Reasoning-effort heat color (2026-10-01, user decision): the effort label takes a hue by
+// level instead of the flat `Cat.subtext` it used to render in — low=grey, medium=unchanged
+// subtext, high=green, xhigh=yellow, max=amber. This deliberately reuses hues that already mean
+// something else on the board (yellow = context-window warning, green = working) — the user
+// judged a readable five-step heat scale more valuable than reserving every hue, and accepted
+// the collision. Unknown/empty values fall back to subtext, same as "medium".
+func effortColor(_ effort: String) -> NSColor {
+    switch effort {
+    case "low":    return Cat.overlay
+    case "medium": return Cat.subtext
+    case "high":   return Cat.green
+    case "xhigh":  return Cat.yellow
+    case "max":    return Cat.amber
+    default:       return Cat.subtext
+    }
+}
+
 // Lock glyph for a permission mode (P1, 2026-07-15): how far the guard is off.
 // nil/"default" shows nothing (unremarkable case); unknown future modes return nil here and
 // keep the text-chip fallback so they stay visible.
