@@ -106,7 +106,10 @@ extension AppDelegate {
     }
 
     // Family peek popover (C7): hovering a collapsed family's summary previews its children.
-    func showFamilyPeek(children: [AgentRow], from anchor: NSView) {
+    // `reports` are finished teammates' one-line completion reports (the `result` of their latest
+    // idle_notification) — a finished teammate has no card of its own, so this is where it shows.
+    func showFamilyPeek(children: [AgentRow], reports: [(name: String, result: String)] = [],
+                        from anchor: NSView) {
         familyPeekCloseWork?.cancel()
         if familyPeekPopover != nil { return }
         let box = NSStackView(); box.orientation = .vertical; box.alignment = .leading; box.spacing = 5
@@ -126,6 +129,23 @@ extension AppDelegate {
             if let s = sub, !s.isEmpty {
                 let l = makeLabel(String(s.prefix(60)), size: 10.5, color: Cat.subtext)
                 l.lineBreakMode = .byTruncatingTail
+                box.addArrangedSubview(l)
+            }
+        }
+        if !reports.isEmpty {
+            box.addArrangedSubview(makeLabel(L("完了報告", "finished"), size: 10, weight: .bold, color: Cat.overlay))
+            for r in reports {
+                let head = symbolLabel("checkmark.circle", r.name, size: 11, weight: .semibold,
+                                       color: Cat.text, symbolColor: Cat.green)
+                head.lineBreakMode = .byTruncatingTail
+                box.addArrangedSubview(head)
+                let l = makeLabel(r.result, size: 10.5, color: Cat.subtext)
+                // A label field doesn't wrap on its own — same wrap setup as the card title.
+                l.lineBreakMode = .byTruncatingTail
+                l.maximumNumberOfLines = 3
+                l.cell?.wraps = true
+                l.cell?.isScrollable = false
+                l.preferredMaxLayoutWidth = 220
                 box.addArrangedSubview(l)
             }
         }

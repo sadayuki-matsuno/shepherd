@@ -41,8 +41,12 @@ struct ModelInfo {
 // verified 2026-07-08 across all local transcripts: `message.model` is the bare id (never a
 // "[1m]" suffix) and no contextWindow/maxContext field exists anywhere. So we map by substring,
 // calibrated against observed peak usage on this machine (fable-5: 435k, opus-4-8: 948k,
-// opus-4-7: 676k — all clearly 1M windows). Everything else stays 200k, but escalates to 1M the
-// moment its own observed total disproves 200k. Override any of this via
+// opus-4-7: 676k — all clearly 1M windows). From generation 5 on, every opus and sonnet is 1M
+// per the official model docs (opus-5 / opus-5-5 / sonnet-5 / sonnet-5-5 — checked 2026-09-30,
+// after an opus-5-5 session at ~188k/1M showed 89% because it fell through to 200k). That rule is
+// written on the generation number rather than a list of ids so the next release doesn't leak the
+// same way. Haiku stays 200k. Everything else stays 200k, but escalates to 1M the moment its own
+// observed total disproves 200k. Override any of this via
 // `defaults write com.sadayuki-matsuno.shepherd contextLimits -dict-add <substring> -int <window>`.
 var contextLimitOverrides: [String: Int] =
     (defaults.dictionary(forKey: "contextLimits") as? [String: Int]) ?? [:]
@@ -52,6 +56,10 @@ func contextWindow(model raw: String?, observedTotal: Int = 0) -> Int {
     for (pattern, window) in contextLimitOverrides where l.contains(pattern.lowercased()) { return window }
     if l.contains("[1m]") { return 1_000_000 }
     if l.contains("fable") || l.contains("opus-4-8") || l.contains("opus-4-7") { return 1_000_000 }
+    // The generation is the 1–2 digit number right after the family name ("claude-opus-5-5",
+    // "claude-sonnet-5"). The digit cap + no-digit-after guard keeps old-style ids
+    // ("claude-3-5-sonnet-20241022") from reading their date as generation 20241022.
+    if let gen = firstMatchInt("(?:opus|sonnet)-(\\d{1,2})(?!\\d)", in: l), gen >= 5 { return 1_000_000 }
     return observedTotal > 200_000 ? 1_000_000 : 200_000
 }
 
@@ -76,6 +84,23 @@ func modelTier(_ name: String) -> Int {
     }
 }
 
+// Reasoning-effort heat color (2026-10-01, user decision): the effort label takes a hue by
+// level instead of the flat `Cat.subtext` it used to render in — low=grey, medium=unchanged
+// subtext, high=green, xhigh=yellow, max=amber. This deliberately reuses hues that already mean
+// something else on the board (yellow = context-window warning, green = working) — the user
+// judged a readable five-step heat scale more valuable than reserving every hue, and accepted
+// the collision. Unknown/empty values fall back to subtext, same as "medium".
+func effortColor(_ effort: String) -> NSColor {
+    switch effort {
+    case "low":    return Cat.overlay
+    case "medium": return Cat.subtext
+    case "high":   return Cat.green
+    case "xhigh":  return Cat.yellow
+    case "max":    return Cat.amber
+    default:       return Cat.subtext
+    }
+}
+
 // Lock glyph for a permission mode (P1, 2026-07-15): how far the guard is off.
 // nil/"default" shows nothing (unremarkable case); unknown future modes return nil here and
 // keep the text-chip fallback so they stay visible.
@@ -84,6 +109,7 @@ func lockGlyph(for mode: String?) -> LockGlyph? {
     case "plan":               return .closed
     case "acceptEdits":        return .unlatched
     case "dontAsk":            return .unlatched
+    case "auto":               return .unlatched   // a classifier approves on the user's behalf
     case "bypassPermissions":  return .open
     default:                   return nil
     }
@@ -99,6 +125,13 @@ func permissionModeChip(_ mode: String?) -> (label: String, color: NSColor)? {
     case "acceptEdits":        return ("⏵⏵ EDITS", Cat.green)
     case "dontAsk":            return ("⏵⏵ NO-ASK", Cat.amber)
     case "bypassPermissions":  return ("BYPASS", Cat.red)
+    // "auto" is the interactive default since CLI 2.1.284 (the binary's list: default /
+    // acceptEdits / bypassPermissions / plan / dontAsk / auto — 2026-09-30). A known mode (no
+    // fallback pill), but tinted plain grey like "default": it IS the new default, so "the default
+    // is uncoloured" keeps reading true — and every free hue collides with something (teal is
+    // SONNET's tier color on the instrument row, which would break "glyph color = permission,
+    // instrument color = tier").
+    case "auto":               return ("AUTO", Cat.overlay)
     case let m?:               return (m.uppercased(), Cat.overlay)
     }
 }
@@ -171,6 +204,13 @@ struct AgentRow {
                                        // (nil = the default ~/.claude). Drives the card's config
                                        // instrument — a second account's sessions share the board
                                        // with the first's, and which is which isn't otherwise visible
+    var effort: String? = nil          // reasoning effort of the latest main-chain reply (transcript
+                                       // top-level `effort`: low / medium / high / xhigh / max; nil on
+                                       // haiku, which has none). The only place the real value lives —
+                                       // settings' effortLevel doesn't always apply to newer models
+    var fastMode: Bool = false         // latest reply ran in fast mode (usage.speed == "fast")
+    var contextWindowTokens: Int? = nil  // the denominator contextPct was actually divided by —
+                                         // kept so the hover never re-derives a different window
 
     // What this session runs on, as chip text ("zellij" / "VS Code" / "Ghostty" / "claude -p" …).
     var runtime: String? {
@@ -236,6 +276,16 @@ func parseClaudeAgents(_ arr: [[String: Any]]) -> [ClaudeAgentEntry] {
 // running/blocked/queued/failed. Anything unknown passes
 // through, so a future word shows up as itself rather than being silently mis-coloured.
 //
+// The rest of the daemon's lifecycle vocabulary (CLI 2.1.285 binary, 2026-09-30: transitional
+// starting / resuming / adopted / crashed, terminal done / failed / stopped) is mapped explicitly —
+// passed through verbatim, each would win mergedStatus as a "real" opinion and hide the registry's
+// answer:
+//   - starting / resuming: no turn has begun yet — abstain ("unknown"), so a registry busy decides.
+//   - crashed: the worker died — "error", same as failed.
+//   - stopped: terminal, like done — "idle".
+// (adopted is handled in statusFromDaemon; the daemon's `tempo` field — active / idle / blocked — is
+// deliberately NOT read: it said "active" for a worker whose registry said idle, 2026-09-30.)
+//
 // `done` collapses onto `idle`. Every source means something different by it — the CLI means "finished
 // and you haven't looked yet", Claude means "this background job has terminated" — and Shepherd tracks
 // neither: a session that isn't working is idle, and a terminated background job is a record, sorted
@@ -243,19 +293,38 @@ func parseClaudeAgents(_ arr: [[String: Any]]) -> [ClaudeAgentEntry] {
 func statusFromAgentState(_ raw: String) -> String {
     switch raw {
     case "busy", "working", "running", "queued": return "working"
-    case "idle", "done":                         return "idle"
-    case "failed":                               return "error"
-    case "":                                     return "unknown"
+    case "idle", "done", "stopped":              return "idle"
+    case "failed", "crashed":                    return "error"
+    case "", "starting", "resuming":             return "unknown"
     case let other:                              return other   // "blocked" arrives verbatim
     }
 }
 
-// A background worker's status from the daemon. The `state` field is NOT reliable for "blocked": a
-// worker waiting on an AskUserQuestion can report state "running" with only `needs` set (measured
-// 2026-07-11 — the card showed working and no notification fired). `needs` is the real signal that a
-// human decision is pending, so a non-empty `needs` is blocked regardless of state.
+// A background worker's status from the daemon. `state` mixes two different things: the JOB'S
+// LIFECYCLE (is the worker process alive at all — running / adopted / done / queued / failed) and,
+// only sometimes, an actual turn-state word. Measurements show two lifecycle words alone say nothing
+// about whether a turn is in flight:
+//   - A worker waiting on an AskUserQuestion can report state "running" with only `needs` set
+//     (measured 2026-07-11 — the card showed working and no notification fired).
+//   - A conversation moved to background with `/bg` (daemon list `source: "slash"`) sat at state
+//     "running", needs empty, for 31 hours after its last turn ended — "running" here just means the
+//     worker process is still up (measured 2026-09-30; see the CLAUDE.md landmine list).
+//   - After cc-daemon itself restarts, a worker it re-attaches to reports state "adopted" (detail
+//     "adopted from previous supervisor"), needs empty — same non-answer, just phrased differently
+//     (measured 2026-09-30 21:43, the same worker as the "running" case above, right after a restart).
+// So a non-empty `needs` is still the real signal a human decision is pending, and that's blocked
+// regardless of state. But "running"/"adopted" with no `needs` is not evidence of anything either
+// way — Shepherd abstains ("unknown") and lets the next source (the session's own registry file,
+// then the CLI) decide. Without this, statusFromAgentState's default case (below) would otherwise
+// pass an unrecognized word like "adopted" straight through as the literal status string — neither
+// "working" nor "idle" nor "unknown" — which mergedStatus then can't distinguish from a real opinion,
+// so it wins outright and hides the registry's/CLI's actual answer (this is what broke: the card
+// never reached idle, so neither the parked chip nor the stop menu item appeared). Every other word
+// maps through statusFromAgentState, which also knows the rest of the lifecycle vocabulary
+// (starting / resuming abstain, crashed = error, stopped = idle).
 func statusFromDaemon(_ job: DaemonJob) -> String {
     if let needs = job.needs, !needs.isEmpty { return "blocked" }
+    if job.state == "running" || job.state == "adopted" { return "unknown" }
     return statusFromAgentState(job.state)
 }
 
@@ -269,9 +338,64 @@ func statusFromClaudeAgent(_ e: ClaudeAgentEntry) -> String {
 // The session's status, from the sources that watch it directly, in priority order: the cc-daemon
 // control socket (it watches its worker), then the process's own registry file (it writes `waiting`
 // the moment it puts a prompt on screen), then `claude agents` (a 5s-cached snapshot with no word
-// for blocked). The first source with an opinion decides; "unknown" means none had one.
+// for blocked). The first source with an opinion decides; "unknown" means none had one — including
+// the daemon abstaining on a bare "running" (statusFromDaemon), which is how a worker stuck at that
+// lifecycle state still gets the registry's or CLI's real answer instead.
 func mergedStatus(live: [String]) -> String {
     live.first { $0 != "unknown" && !$0.isEmpty } ?? "unknown"
+}
+
+// When the daemon abstains on a bare "running" (statusFromDaemon — a lifecycle word, not a
+// turn-state one) AND the registry has nothing to say either (missing, or its own state is
+// unreadable), mergedStatus would otherwise fall through to the CLI. But `claude agents`'s "blocked"
+// for a background record measures, in practice, as "turn over, no live prompt, waiting for the next
+// instruction" (measured 2026-09-30) — not a real open AskUserQuestion; a genuine block is already
+// covered by the daemon's `needs` and the registry's `waiting`. Left alone, that stale blocked parks
+// a false "response needed" card and notification that blockedResolved can never clear (its
+// transcript check finds nothing pending to resolve — see blockedResolved in buildRow), so it is
+// swapped for idle here instead. Gated to `hasJob`: a row with no daemon job at all (interactive, or
+// a VSCode-panel session) is a different case, already served by the transcript-based blocked
+// handling further down buildRow — this must not touch that.
+//
+// Known limitation (kept on purpose, code review 2026-09-30): a permission prompt that shows up in
+// neither `needs` nor a registry `waiting` would be flattened to idle here. A background worker with
+// no registry file hasn't been observed, and the CLI's blocked measured as the synthetic "idle — send
+// a prompt", so avoiding a false "response needed" notification wins.
+func cliStatusAfterDaemonAbstains(hasJob: Bool, daemonStatus: String, registryStatus: String,
+                                  cliStatus: String) -> String {
+    guard hasJob, daemonStatus == "unknown", registryStatus == "unknown", cliStatus == "blocked"
+    else { return cliStatus }
+    return "idle"
+}
+
+// The live-source status of one session: daemon → registry → CLI, with the CLI's stale blocked
+// swapped out when the other two abstained (cliStatusAfterDaemonAbstains). The one composition both
+// fetchAgents' row builder and claudeAgentRow use — they used to assemble it separately and drifted
+// (daemon running + CLI blocked came out blocked in one and idle in the other).
+func liveStatus(daemon: DaemonJob?, registry: SessionRegistryEntry?, cli: ClaudeAgentEntry) -> String {
+    let daemonStatus = daemon.map(statusFromDaemon) ?? "unknown"
+    let registryStatus = registry.map(statusFromRegistry) ?? "unknown"
+    let cliStatus = cliStatusAfterDaemonAbstains(hasJob: daemon != nil, daemonStatus: daemonStatus,
+                                                 registryStatus: registryStatus,
+                                                 cliStatus: statusFromClaudeAgent(cli))
+    return mergedStatus(live: [daemonStatus, registryStatus, cliStatus])
+}
+
+// When no live source had an opinion ("unknown"), the transcript decides — lazily, since each
+// probe is file IO — but only for a row with NO daemon job (a VS Code extension-panel session, which
+// never writes a registry status): blocked from an unanswered AskUserQuestion / ExitPlanMode
+// (`pending`), else working / idle from the turn shape (`turnActive`).
+// A daemon row is left "unknown" on both axes. A background worker flushes its assistant lines only
+// when the turn completes, so its transcript tail lags a turn behind: it doesn't show the question
+// while blocked (CLAUDE.md landmine list), and it shows the PREVIOUS turn's end_turn while a new turn
+// is running — read as idle, a busy worker would grow the parked chip and the stop menu item. An
+// honest "unknown" beats that false idle (code review, 2026-09-30).
+func statusAfterTranscriptFallback(_ status: String, hasJob: Bool, pending: () -> Bool,
+                                   turnActive: () -> Bool?) -> String {
+    guard status == "unknown", !hasJob else { return status }
+    if pending() { return "blocked" }
+    if let active = turnActive() { return active ? "working" : "idle" }
+    return status
 }
 
 // What a session's process environment tells us that no file does (2026-07-10). `ps -wwEp <pid>`
@@ -359,7 +483,10 @@ func liveBlocked(job: DaemonJob?, registry: SessionRegistryEntry?) -> Bool {
 // `daemon` is the same session as its live cc-daemon worker reports it over the control socket, when
 // there is one. It outranks the CLI on both fields it can speak to:
 //   - `state`: the socket watches the worker directly, where `claude agents` answers from a 5s cache
-//     and can disagree with the worker's real state.
+//     and can disagree with the worker's real state — but only when the daemon actually has an
+//     opinion. statusFromDaemon returns "unknown" for a bare "running" (a lifecycle word, not a
+//     turn-state one), and mergedStatus then falls through to the CLI's own verdict instead of
+//     showing a stale "running" as working (measured 2026-09-30).
 //   - `detail`: the only source that says what the agent is doing *right now*. The AI title names the
 //     conversation, not the current turn, so detail leads the activity line.
 // `env` is the row's own process environment (envFacts), which is how a hook-less session still gets
@@ -372,14 +499,16 @@ func claudeAgentRow(_ e: ClaudeAgentEntry, updatedAt: Date?, git g: GitFacts? = 
     let backend = resolveBackend(zellijSession: env.zellijSession, termProgram: env.termProgram,
                                  underZellij: underZellij, entrypoint: entrypoint)
     return AgentRow(sessionId: e.sessionId, model: nil, contextPct: nil,
-                    status: daemon.map(statusFromDaemon) ?? statusFromClaudeAgent(e),
+                    status: liveStatus(daemon: daemon, registry: nil, cli: e),
                     label: e.name ?? dirName, cwd: e.cwd, dirName: dirName,
                     dirPath: parentName.isEmpty ? dirName : "\(parentName)/\(dirName)",
                     branch: g?.branch, changedFiles: g?.changed,
                     issueNo: g?.branch.flatMap { firstMatchInt("issue(\\d+)", in: $0) },
                     prNo: g?.prNo, prUrl: g?.prUrl, ciState: g?.ciState,
                     repoKey: g?.repoKey, repoName: g?.repoName, isWorktree: g?.isWorktree ?? false,
-                    activity: daemon?.detail ?? e.aiTitle, links: [],
+                    // An adopted worker's detail is the supervisor's fixed "adopted from previous
+                    // supervisor" (2026-09-30), not the current turn — skipped by state, not wording.
+                    activity: (daemon?.state == "adopted" ? nil : daemon?.detail) ?? e.aiTitle, links: [],
                     statusSince: updatedAt ?? e.startedAt ?? Date(),
                     backend: backend,
                     // A VSCode row's zellij vars are the leak this resolution just rejected — a
@@ -418,6 +547,10 @@ struct SubagentRecord {
                                    // the agent's own words, so it reads in the session's language
     var startedAt: Date? = nil     // meta.json mtime — written once at spawn
     var updatedAt: Date? = nil     // jsonl mtime — freshness of the live transcript
+    var result: String? = nil      // teammate only: the one-line report carried by its latest
+                                   // idle_notification in the lead transcript (`result`, 2026-09-30)
+    var resultAt: Date? = nil      // that notification's own timestamp — the report's age (the
+                                   // jsonl mtime is not: a re-read or late flush moves it)
 
     // The transcript-resolution key for this agent: every transcript helper builds
     // <projects>/<sanitized-cwd>/<sessionId>.jsonl, so a "sessionId" of
@@ -432,8 +565,12 @@ struct SubagentRecord {
 // jsonl-tail state, a teammate revived by a later SendMessage turns working again and the card
 // simply reappears. `git` is the facts of the agent's own cwd (its worktree, when isolated); when
 // they're missing the parent's grouping keys keep the card in the parent's board section.
+//
+// `context` is read from the agent's OWN jsonl — its model, effort and fast mode can differ from the
+// parent's. Model falls back to the spawn-time alias in the meta: a just-spawned agent has no
+// assistant line yet, and an inherited model has no meta entry either, so both sources are needed.
 func subagentChildRow(parent: AgentRow, rec: SubagentRecord, git g: GitFacts?,
-                      model: ModelInfo? = nil, advisor: ModelInfo? = nil, contextPct: Double? = nil,
+                      context: TranscriptContext = TranscriptContext(),
                       activity: String? = nil, links: [AgentLink] = [],
                       now: Date = Date()) -> AgentRow {
     let cwd = rec.worktreePath ?? parent.cwd
@@ -441,7 +578,8 @@ func subagentChildRow(parent: AgentRow, rec: SubagentRecord, git g: GitFacts?,
     let parentName = ((cwd as NSString).deletingLastPathComponent as NSString).lastPathComponent
     let branch = g?.branch ?? rec.worktreeBranch
     return AgentRow(sessionId: rec.transcriptKey(parent: parent.sessionId),
-                    model: model, advisor: advisor, contextPct: contextPct,
+                    model: context.model ?? rec.model.flatMap(modelInfo), advisor: context.advisor,
+                    contextPct: context.pct,
                     status: "working",
                     // Plain name — the "this is a subagent" mark is a sparkles symbol drawn by the
                     // UI (card title / family peek), not baked into the label (2026-07-11).
@@ -465,7 +603,28 @@ func subagentChildRow(parent: AgentRow, rec: SubagentRecord, git g: GitFacts?,
                     isSubagent: true,
                     // A subagent runs inside its parent's process, so it lives in the parent's
                     // config dir — and its transcript is read out of that dir's projects/ too.
-                    configDir: parent.configDir)
+                    configDir: parent.configDir,
+                    effort: context.effort, fastMode: context.fast,
+                    contextWindowTokens: context.window)
+}
+
+// How long a finished teammate's completion report stays on its lead's family strip. Long enough
+// to notice after stepping away for a bit; short enough that the strip doesn't linger all day.
+let teammateReportWindow: TimeInterval = 30 * 60
+
+// Finished teammates' one-line completion reports worth showing: reported within
+// teammateReportWindow, newest REPORT first (by the notification's own time), at most 5. A finished
+// teammate has no card of its own, so the lead's family strip / peek is where these surface.
+func recentTeammateReports(_ subagents: [SubagentRecord], now: Date = Date())
+    -> [(name: String, result: String, at: Date)] {
+    subagents.compactMap { rec -> (name: String, result: String, at: Date)? in
+        guard !rec.working, let result = rec.result, let at = rec.resultAt,
+              now.timeIntervalSince(at) <= teammateReportWindow else { return nil }
+        return (rec.name ?? rec.type, result, at)
+    }
+    .sorted { $0.at > $1.at }
+    .prefix(5)
+    .map { $0 }
 }
 
 // MARK: - cc-daemon control socket
@@ -483,7 +642,8 @@ func subagentChildRow(parent: AgentRow, rec: SubagentRecord, git g: GitFacts?,
 struct DaemonJob: Equatable {
     let short: String        // the id `claude stop` / `op:"kill"` take (the UUID's first segment)
     let sessionId: String    // full UUID — the join key with status files and transcripts
-    let state: String        // running / blocked / done / queued / failed
+    let state: String        // running / blocked / queued, plus the lifecycle words (2.1.285):
+                             // starting / resuming / adopted / crashed, done / failed / stopped
     let detail: String?
     let needs: String?
     let name: String?        // the worker's AI-generated work title

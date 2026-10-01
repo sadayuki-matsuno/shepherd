@@ -42,16 +42,27 @@ func transcriptMtime(cwd: String, sessionId: String) -> Date? {
 // character. `String(data:encoding:.utf8)` returns nil for the WHOLE slice when that happens, not just
 // for the split character — so tail slices are decoded leniently. The first line of a slice is a
 // fragment either way, and every reader below skips lines that don't parse as JSON.
-func readTranscriptContext(cwd: String, sessionId: String) -> (model: ModelInfo?, pct: Double?, advisor: ModelInfo?) {
-    guard !cwd.isEmpty, !sessionId.isEmpty else { return (nil, nil, nil) }
+// Everything one transcript tail read yields about the latest main-chain reply.
+struct TranscriptContext {
+    var model: ModelInfo? = nil
+    var pct: Double? = nil         // context-window usage 0…1
+    var advisor: ModelInfo? = nil  // line-level advisorModel ("configured", not "consulted")
+    var window: Int? = nil         // the denominator pct was divided by (hover shows this, not a
+                                   // re-derivation that lacks the observed total)
+    var effort: String? = nil      // line-level `effort` (low / medium / high / xhigh / max)
+    var fast: Bool = false         // message.usage.speed == "fast"
+}
+
+func readTranscriptContext(cwd: String, sessionId: String) -> TranscriptContext {
+    guard !cwd.isEmpty, !sessionId.isEmpty else { return TranscriptContext() }
     let dir = transcriptDir(cwd: cwd, sessionId: sessionId)
     let path = (dir as NSString).appendingPathComponent("\(sessionId).jsonl")
-    guard let fh = FileHandle(forReadingAtPath: path) else { return (nil, nil, nil) }
+    guard let fh = FileHandle(forReadingAtPath: path) else { return TranscriptContext() }
     defer { try? fh.close() }
     let size = (try? fh.seekToEnd()) ?? 0
-    if size > 65_536, (try? fh.seek(toOffset: size - 65_536)) == nil { return (nil, nil, nil) }
+    if size > 65_536, (try? fh.seek(toOffset: size - 65_536)) == nil { return TranscriptContext() }
     else if size <= 65_536 { try? fh.seek(toOffset: 0) }
-    guard let data = try? fh.readToEnd() else { return (nil, nil, nil) }
+    guard let data = try? fh.readToEnd() else { return TranscriptContext() }
     let text = String(decoding: data, as: UTF8.self)
     // A subagent's own transcript (sessionId = "<parent>/subagents/agent-<id>") is ALL sidechain
     // lines — every assistant record in agent-<id>.jsonl carries isSidechain:true (measured
@@ -67,19 +78,38 @@ func readTranscriptContext(cwd: String, sessionId: String) -> (model: ModelInfo?
               ownSidechain || (obj["isSidechain"] as? Bool) != true,
               let msg = obj["message"] as? [String: Any],
               let usage = msg["usage"] as? [String: Any] else { continue }
-        let total = (usage["input_tokens"] as? Int ?? 0)
-                  + (usage["cache_read_input_tokens"] as? Int ?? 0)
-                  + (usage["cache_creation_input_tokens"] as? Int ?? 0)
+        // On a turn that consulted the advisor, the top-level usage is the SUM of `iterations[]`
+        // ({"type":"message"} calls of the main model + {"type":"advisor_message"} ones), so it
+        // double-counts the context — measured 2026-09-30: 144 such lines, 198% on average. The
+        // main model's context is its LAST "message" iteration. A line without an advisor call
+        // carries a single "message" iteration equal to the top level, or none at all (older CLIs).
+        let iterations = usage["iterations"] as? [[String: Any]] ?? []
+        let counted = iterations.last { ($0["type"] as? String) == "message" } ?? usage
+        let total = (counted["input_tokens"] as? Int ?? 0)
+                  + (counted["cache_read_input_tokens"] as? Int ?? 0)
+                  + (counted["cache_creation_input_tokens"] as? Int ?? 0)
+        var ctx = TranscriptContext()
         let window = contextWindow(model: msg["model"] as? String, observedTotal: total)
-        let pct = total > 0 ? min(1.0, Double(total) / Double(window)) : nil
-        let model = (msg["model"] as? String).flatMap(modelInfo)
+        ctx.window = window
+        ctx.pct = total > 0 ? min(1.0, Double(total) / Double(window)) : nil
+        ctx.model = (msg["model"] as? String).flatMap(modelInfo)
         // Advisor-paired sessions stamp every assistant line with a top-level "advisorModel"
         // (2026-07-15 measured, incl. subagent transcripts — the session setting propagates).
         // Its presence means "advisor configured", not "advisor was consulted".
-        let advisor = (obj["advisorModel"] as? String).flatMap(modelInfo)
-        return (model, pct, advisor)
+        ctx.advisor = (obj["advisorModel"] as? String).flatMap(modelInfo)
+        // Reasoning effort, line-level (measured 2026-09-30, CLI 2.1.285): low / medium / high /
+        // xhigh / max, null or absent on haiku; subagent/teammate jsonl carry their own value. The
+        // sibling `perTurnEffort` is filled only for some models, so it's not read. This is the
+        // only place the effective value exists — settings' effortLevel may not apply to newer
+        // models (CHANGELOG 2.1.280).
+        ctx.effort = (obj["effort"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        // Fast mode. Only "standard" has been observed in real transcripts (2026-09-30); the CLI
+        // binary writes `speed: e.speed === "fast" ? "fast" : null`, so "fast" is the one value
+        // that means it — never actually seen on disk yet.
+        ctx.fast = (usage["speed"] as? String) == "fast"
+        return ctx
     }
-    return (nil, nil, nil)
+    return TranscriptContext()
 }
 
 // Accept only a well-formed http(s) URL (trims trailing punctuation / full-width junk),
@@ -671,9 +701,19 @@ func transcriptTurnActive(cwd: String, sessionId: String) -> Bool? {
 // idle, up to ~2min while it is mid-turn), so "idle" detection can lag by that much. The error is
 // on the safe side — a finished teammate briefly keeps its working card, never the reverse.
 
+// Since 2026-09-30 (CLI 2.1.285) the event also carries `"result":"…"` — the teammate's one-line
+// report of what it finished. The older shape has no such key and still parses (result nil).
+
+// One teammate's latest idle_notification. `result` belongs to THAT notification: a newer one
+// without a report clears the older report, which described an earlier turn.
+struct TeammateIdle: Equatable {
+    let at: Date
+    let result: String?
+}
+
 // The latest idle_notification per teammate name found in a transcript slice. Pure, testable.
-func teammateIdlesFromSlice(_ text: String) -> [String: Date] {
-    var out: [String: Date] = [:]
+func teammateIdlesFromSlice(_ text: String) -> [String: TeammateIdle] {
+    var out: [String: TeammateIdle] = [:]
     for line in text.split(separator: "\n") where line.contains("idle_notification") {
         guard let d = line.data(using: .utf8),
               let obj = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any],
@@ -691,8 +731,9 @@ func teammateIdlesFromSlice(_ text: String) -> [String: Date] {
                   (n["type"] as? String) == "idle_notification",
                   let from = n["from"] as? String,
                   let at = parseUsageISODate(n["timestamp"] as? String) else { continue }
-            if let prev = out[from], prev >= at { continue }
-            out[from] = at
+            if let prev = out[from], prev.at >= at { continue }
+            let result = (n["result"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            out[from] = TeammateIdle(at: at, result: result?.isEmpty == false ? result : nil)
         }
     }
     return out
@@ -701,7 +742,7 @@ func teammateIdlesFromSlice(_ text: String) -> [String: Date] {
 // Latest idle_notification per teammate name from the lead's transcript. Incremental like
 // extractLinksFromTranscript: the first read scans up to the trailing transcriptScanTail, every
 // read after that only the newly-appended bytes; results accumulate per session.
-func teammateIdleTimes(cwd: String, sessionId: String) -> [String: Date] {
+func teammateIdleTimes(cwd: String, sessionId: String) -> [String: TeammateIdle] {
     guard !cwd.isEmpty, !sessionId.isEmpty else { return [:] }
     let dir = transcriptDir(cwd: cwd, sessionId: sessionId)
     let path = (dir as NSString).appendingPathComponent("\(sessionId).jsonl")
@@ -718,9 +759,9 @@ func teammateIdleTimes(cwd: String, sessionId: String) -> [String: Date] {
     guard (try? fh.seek(toOffset: start)) != nil,
           let data = try? fh.readToEnd() else { return cached?.idleAt ?? [:] }
     var merged = cached?.idleAt ?? [:]
-    for (from, at) in teammateIdlesFromSlice(String(decoding: data, as: UTF8.self)) {
-        if let prev = merged[from], prev >= at { continue }
-        merged[from] = at
+    for (from, idle) in teammateIdlesFromSlice(String(decoding: data, as: UTF8.self)) {
+        if let prev = merged[from], prev.at >= idle.at { continue }
+        merged[from] = idle
     }
     factsLock.lock()
     teammateIdleCache[sessionId] = (merged, size)
@@ -770,7 +811,7 @@ func subagentsFromTranscript(cwd: String, sessionId: String) -> [SubagentRecord]
         (try? fm.attributesOfItem(atPath: path))?[.modificationDate] as? Date
     }
     // Lead-transcript idle notifications, fetched once per call and only when a teammate needs them.
-    var idleTimes: [String: Date]?
+    var idleTimes: [String: TeammateIdle]?
     var out: [SubagentRecord] = []
     for name in names.sorted() where name.hasPrefix("agent-") && name.hasSuffix(".meta.json") {
         let metaPath = (subagents as NSString).appendingPathComponent(name)
@@ -797,7 +838,10 @@ func subagentsFromTranscript(cwd: String, sessionId: String) -> [SubagentRecord]
         rec.working = !tail.finished && teammateWorking(idleAt: nil, jsonlMtime: mtime(jsonl))
         if (meta["taskKind"] as? String) == "in_process_teammate", let agentName = rec.name {
             if idleTimes == nil { idleTimes = teammateIdleTimes(cwd: cwd, sessionId: sessionId) }
-            rec.working = teammateWorking(idleAt: idleTimes?[agentName], jsonlMtime: mtime(jsonl))
+            let idle = idleTimes?[agentName]
+            rec.working = teammateWorking(idleAt: idle?.at, jsonlMtime: mtime(jsonl))
+            rec.result = idle?.result
+            rec.resultAt = idle?.result == nil ? nil : idle?.at
         }
         rec.activity = tail.activity
         rec.startedAt = mtime(metaPath)
@@ -983,15 +1027,15 @@ func firstPromptFromSessionsIndex(cwd: String, sessionId: String) -> String? {
 
 // Model + context %, cached ~20s (transcripts change slower than a poll). Shared by the herdr
 // and status-only paths.
-func transcriptCtx(cwd: String, sessionId: String) -> (model: ModelInfo?, pct: Double?, advisor: ModelInfo?) {
-    guard !sessionId.isEmpty else { return (nil, nil, nil) }
+func transcriptCtx(cwd: String, sessionId: String) -> TranscriptContext {
+    guard !sessionId.isEmpty else { return TranscriptContext() }
     factsLock.lock()
     let c = contextCache[sessionId]
     factsLock.unlock()
-    if let c = c, Date().timeIntervalSince(c.at) < 20 { return (c.model, c.pct, c.advisor) }
+    if let c = c, Date().timeIntervalSince(c.at) < 20 { return c.ctx }
     let info = readTranscriptContext(cwd: cwd, sessionId: sessionId)
     factsLock.lock()
-    contextCache[sessionId] = (info.model, info.pct, info.advisor, Date())
+    contextCache[sessionId] = (info, Date())
     factsLock.unlock()
     return info
 }
