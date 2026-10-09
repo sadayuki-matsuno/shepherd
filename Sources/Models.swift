@@ -25,6 +25,11 @@ enum Cat {
     static let mauve = rgb(0xcba6f7)     // FABLE chip
     static let lavender = rgb(0xb4befe)
     static let amber = rgb(0xf5c97b)     // uncommitted dog-ear (distinct from peach)
+    // Session marks on the meta strip (2026-10-10, user decision: the grey marks were "very hard
+    // to read"). Bright hues no status / tier already owns: sky = shell, lavender = monitor,
+    // pink = workspace (teal would collide with the SONNET tier color).
+    static let sky = rgb(0x89dceb)
+    static let pink = rgb(0xf5c2e7)
     static let crust = rgb(0x11111b)     // dark text on solid status banners
 }
 
@@ -99,6 +104,40 @@ func effortColor(_ effort: String) -> NSColor {
     case "max":    return Cat.amber
     default:       return Cat.subtext
     }
+}
+
+// Startup-disk usage for the dashboard gauge. `available` is the volume's
+// volumeAvailableCapacityForImportantUsage — the "available" Finder shows, purgeable space
+// included — and `total` the container capacity, so used = what Finder's Get Info implies
+// (`df`'s Data-volume % is lower: its denominator is that volume's own used+avail and leaves out
+// the other APFS volumes in the container). nil when there's no capacity to divide by.
+func diskUsedFraction(total: Int64, available: Int64) -> Double? {
+    guard total > 0 else { return nil }
+    return min(1, max(0, Double(total - available) / Double(total)))
+}
+
+// Disk gauge color: the plan-usage gauges' palette, but at 80 / 90 rather than their 60 / 85 —
+// a disk sits at 60–75% for months, and a gauge that is always peach stops meaning anything.
+func diskGaugeColor(_ fraction: Double) -> NSColor {
+    fraction >= 0.90 ? Cat.red : fraction >= 0.80 ? Cat.peach : Cat.green
+}
+
+// The leading symbol for a title that is a mid-call tool line ("⚙ <tool>: <what>" / "⚙ <tool>",
+// subagentTail's data marker): a Bash call reads as a shell (terminal), any other tool as the
+// generic gear. Exactly "Bash" — "BashOutput" and friends stay gears. nil = not a tool line.
+func toolTitleSymbol(_ title: String) -> String? {
+    guard title.hasPrefix("⚙ ") else { return nil }
+    return title.dropFirst(2).prefix { $0 != ":" } == "Bash" ? "terminal" : "gearshape"
+}
+
+// The disk gauge's text: "used / total" in decimal units (Finder's: 1 GB = 10^9 B), the unit
+// chosen by the total — whole GB below 1 TB ("412 / 994 GB"), one-decimal TB from there up
+// ("1.2 / 2.0 TB"). The percentage stays on the bar (fill + color) and in the hover.
+func diskUsageText(used: Int64, total: Int64) -> String {
+    if total >= 1_000_000_000_000 {
+        return String(format: "%.1f / %.1f TB", Double(used) / 1e12, Double(total) / 1e12)
+    }
+    return String(format: "%.0f / %.0f GB", Double(used) / 1e9, Double(total) / 1e9)
 }
 
 // Lock glyph for a permission mode (P1, 2026-07-15): how far the guard is off.
@@ -209,6 +248,8 @@ struct AgentRow {
                                        // haiku, which has none). The only place the real value lives —
                                        // settings' effortLevel doesn't always apply to newer models
     var fastMode: Bool = false         // latest reply ran in fast mode (usage.speed == "fast")
+    var shellRunning: Bool = false     // a foreground Bash call is in flight (sessionTaskMarks)
+    var monitors: [MonitorTask] = []   // Monitor watches started and not yet ended (sessionTaskMarks)
     var contextWindowTokens: Int? = nil  // the denominator contextPct was actually divided by —
                                          // kept so the hover never re-derives a different window
 
@@ -572,6 +613,7 @@ struct SubagentRecord {
 func subagentChildRow(parent: AgentRow, rec: SubagentRecord, git g: GitFacts?,
                       context: TranscriptContext = TranscriptContext(),
                       activity: String? = nil, links: [AgentLink] = [],
+                      tasks: TranscriptTaskState = TranscriptTaskState(),
                       now: Date = Date()) -> AgentRow {
     let cwd = rec.worktreePath ?? parent.cwd
     let dirName = (cwd as NSString).lastPathComponent
@@ -605,6 +647,11 @@ func subagentChildRow(parent: AgentRow, rec: SubagentRecord, git g: GitFacts?,
                     // config dir — and its transcript is read out of that dir's projects/ too.
                     configDir: parent.configDir,
                     effort: context.effort, fastMode: context.fast,
+                    // No shellRunning: a child's in-flight call is already its title ("⚙ Bash: …",
+                    // drawn with the terminal glyph). Its monitors come from its own jsonl.
+                    // The agent runs inside the parent's process: the parent's start is its floor.
+                    monitors: sessionTaskMarks(tasks, status: "working", hasJob: false,
+                                               processStartedAt: parent.startedAt, now: now).monitors,
                     contextWindowTokens: context.window)
 }
 

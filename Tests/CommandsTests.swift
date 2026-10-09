@@ -48,7 +48,7 @@ func runCommandsTests() {
         expectEq(statusFromRegistry(entry("waiting")), "blocked")
         expectEq(statusFromRegistry(entry("idle")), "idle")
         expectEq(statusFromRegistry(entry("shell")), "idle",
-                 "the CLI's 4th value: idle, with a `!` shell command being typed")
+                 "the CLI's 4th value: an idle turn that still holds a live background shell task (bg Bash / Monitor)")
         expectEq(statusFromRegistry(entry("something-new")), "unknown", "future statuses degrade, not crash")
         expectEq(statusFromRegistry(entry(nil)), "unknown")
     }

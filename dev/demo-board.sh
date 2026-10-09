@@ -129,7 +129,9 @@ S = [
          # sonnet-5 is a 1M window — ~65% keeps a yellow context pie on the board
          usage=(900, 640000, 7100), mode="acceptEdits", effort="medium",
          title=T("flaky な認証テストの修正", "Fix the flaky auth spec"),
-         prompt=T("認証テストがたまに落ちるので直して", "The auth spec fails intermittently — fix it")),
+         prompt=T("認証テストがたまに落ちるので直して", "The auth spec fails intermittently — fix it"),
+         # a persistent Monitor watch → the card's binoculars mark
+         monitor=T("PR #3262 の CI を監視", "watch PR #3262 CI")),
     # working lead: FABLE on bypass, publishes an Artifact, runs an Explore subagent
     dict(sid=str(uuid.uuid4()), cwd=f"{src}/mailer", status="busy",
          started=47*60, updated=13*60,
@@ -153,7 +155,9 @@ S = [
          started=6*60, updated=90,
          model="claude-sonnet-5", usage=(400, 17000, 600), mode="auto", effort="high",
          title=T("ロビーに観戦モードを追加", "Add spectator mode to the lobby"),
-         prompt=T("ロビーに観戦モードを足してください", "Please add a spectator mode to the lobby")),
+         prompt=T("ロビーに観戦モードを足してください", "Please add a spectator mode to the lobby"),
+         # its newest record is a Bash call with no result yet → the card's shell mark
+         bash="npm test -- spectator"),
 ]
 
 # `claude agents --json --all` roster — the entry-point source rows are built from
@@ -196,6 +200,18 @@ for i, s in enumerate(S):
         lines += publish
         if a.get("redeploy"):
             lines += json.loads(json.dumps(publish).replace(f"toolu_art{ai}", f"toolu_art{ai}r"))
+    if "monitor" in s:
+        # Monitor's start: the tool_result's toolUseResult {taskId, timeoutMs, persistent}
+        # (real shape, 2026-10-08). No <task-notification> with <status> follows → still running.
+        lines += [
+            dict(type="assistant", message=dict(role="assistant", id="msg_demo_mon", content=[
+                dict(type="tool_use", name="Monitor", id="toolu_mon1",
+                     input=dict(description=s["monitor"], persistent=True, command="gh pr checks --watch"))])),
+            dict(type="user", timestamp=time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(now - 300)),  # after the pid started: older monitors are filtered as a previous process's
+                 toolUseResult=dict(taskId="bdemo0001", timeoutMs=0, persistent=True),
+                 message=dict(role="user", content=[dict(type="tool_result", tool_use_id="toolu_mon1",
+                     content="Monitor started (task bdemo0001, persistent — runs until TaskStop or session end).")])),
+        ]
     if "question" in s:
         # The card's one-line "? …" preview reads the latest assistant TEXT, so say the question
         # in prose first — the tool_use record follows, like a real session.
@@ -215,6 +231,10 @@ for i, s in enumerate(S):
             type="tool_use", name="AskUserQuestion", id="toolu_q1",
             input=dict(questions=[dict(question=q["q"], multiSelect=False,
                                        options=[dict(label=o) for o in q["opts"]])]))]
+    elif "bash" in s:
+        final["message"]["id"] = "msg_demo_bash"
+        final["message"]["content"] = [dict(type="tool_use", name="Bash", id="toolu_bash1",
+                                            input=dict(command=s["bash"]))]
     else:
         final["message"]["content"] = [dict(
             type="text", text=("作業を継続しています。" if ja else "Continuing with the task."))]

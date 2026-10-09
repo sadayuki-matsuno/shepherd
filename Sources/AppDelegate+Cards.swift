@@ -243,11 +243,16 @@ extension AppDelegate {
         // that is a mid-call tool line keeps Transcript's "⚙ " data marker but renders it as a
         // gear symbol. Tool-call wins when both apply — the nesting already says "subagent".
         var titleSymbol: String? = row.isSubagent ? "sparkles" : nil
-        if titleText.hasPrefix("⚙ ") { titleSymbol = "gearshape"; titleText = String(titleText.dropFirst(2)) }
+        // A Bash call reads as a shell (terminal glyph, in the meta strip's shell color) rather than
+        // the generic gear (2026-10-10, toolTitleSymbol).
+        if let toolSymbol = toolTitleSymbol(titleText) {
+            titleSymbol = toolSymbol
+            titleText = String(titleText.dropFirst(2))
+        }
         let titleSize: CGFloat = row.isSubagent ? 11 : 13.5
         let title = titleSymbol.map {
             symbolLabel($0, titleText, size: titleSize, weight: .semibold, color: Cat.text,
-                        symbolColor: $0 == "sparkles" ? Cat.mauve : Cat.overlay)
+                        symbolColor: $0 == "sparkles" ? Cat.mauve : $0 == "terminal" ? Cat.sky : Cat.overlay)
         } ?? makeLabel(titleText, size: titleSize, weight: .semibold, color: Cat.text)
         // Wrap long work titles to at most 2 lines, then ellipsize (v5fix2 #4). preferredMaxLayoutWidth
         // reserves a sliver for the remote mark so a title that overflows wraps (rather than the
@@ -369,7 +374,7 @@ extension AppDelegate {
         // the title truncated both the chips and the title. Mode first (PLAN / ⏵⏵ EDITS / BYPASS…,
         // from the hook's permission_mode; "default" shows nothing), then the model tier, and last
         // BG for a cc-daemon background agent (2026-07-09) — the one chip that changes what "close"
-        // does, so it's worth seeing at a glance.
+        // does, so it's worth seeing at a glance. (Hover tips: withHoverTip, AppDelegate+Columns.)
         let modeChip = permissionModeChip(row.permissionMode)
         if modeChip != nil || row.model != nil || row.advisor != nil || row.isBackground
             || row.configDir != nil || row.effort != nil || row.fastMode {
@@ -382,33 +387,6 @@ extension AppDelegate {
             // Unknown future modes keep the pill fallback here so they stay visible.)
             if let pm = modeChip, lockGlyph(for: row.permissionMode) == nil {
                 chips.addArrangedSubview(tinyChip(pm.label, color: pm.color))
-            }
-            // Wrap an instrument-row element in a HoverView that shows `tip` as an anchored popover.
-            // Never the bottom hint line: it does render (verified 2026-08-23 with a warped cursor)
-            // but sits at the far bottom-left of the board in 10.5pt overlay grey, an eyeline away
-            // from the instrument being hovered — "invisible in practice for per-element details",
-            // which is what hoverTipPopover was introduced for. hideHoverTip(from:) lets only the
-            // view currently showing the tip close it (landmine list: enter/exit ordering).
-            func withHoverTip(_ v: NSView, _ tip: String) -> NSView {
-                let box = HoverView()
-                v.translatesAutoresizingMaskIntoConstraints = false
-                box.translatesAutoresizingMaskIntoConstraints = false
-                box.addSubview(v)
-                NSLayoutConstraint.activate([
-                    v.topAnchor.constraint(equalTo: box.topAnchor),
-                    v.bottomAnchor.constraint(equalTo: box.bottomAnchor),
-                    v.leadingAnchor.constraint(equalTo: box.leadingAnchor),
-                    v.trailingAnchor.constraint(equalTo: box.trailingAnchor),
-                ])
-                box.onHover = { [weak self, weak box] entered in
-                    guard let box = box else { return }
-                    if entered {
-                        self?.showHoverTip(makeLabel(tip, size: 11, color: Cat.text), from: box)
-                    } else {
-                        self?.hideHoverTip(from: box)
-                    }
-                }
-                return box
             }
             // Reasoning effort belongs to the model instrument ("OPUS · XHIGH"): placed right after
             // it, 4pt apart. The label (joiner "·" included — one NSTextField, one color) takes a
@@ -544,6 +522,39 @@ extension AppDelegate {
         func metaSymbolLabel(_ symbol: String, _ s: String, color: NSColor) -> NSTextField {
             let l = symbolLabel(symbol, s, size: 10.5, color: color)
             l.setContentCompressionResistancePriority(.required, for: .horizontal); return l
+        }
+        // Session marks (2026-10-10): icon-only, so the strip stays short; each explains itself in
+        // an anchored hover popover. Here rather than the instrument row, whose colors mean "model
+        // tier", or the title row, whose width is reserved for a 2-line title. Each wears its own
+        // bright hue (user decision 2026-10-10 — the first grey version was "very hard to read"):
+        // sky = shell, lavender = monitor, pink = workspace; none is a status or tier color,
+        // and all stay legible under an idle card's 50% alpha.
+        // (Workspace isn't arrow.triangle.branch: on the card face that glyph is the fork mark —
+        // family strip and thread node — and the right-click menu uses it for a worktree's
+        // directory item; a third meaning on the face would read as "fork".)
+        if row.isWorktree {
+            meta.addArrangedSubview(withHoverTip(
+                metaSymbolLabel("square.stack.3d.up", "", color: Cat.pink),
+                L("ワークスペース: git worktree 内で作業中（\(row.dirName)）",
+                  "workspace: working inside a git worktree (\(row.dirName))")))
+        }
+        if row.shellRunning {
+            meta.addArrangedSubview(withHoverTip(
+                metaSymbolLabel("terminal", "", color: Cat.sky),
+                L("シェル: Bash コマンドを実行中", "shell: a Bash command is running")))
+        }
+        if !row.monitors.isEmpty {
+            let lines = row.monitors.map { m -> String in
+                let what = m.description ?? m.taskId
+                let until = m.persistent ? L("永続", "persistent")
+                    : m.timeoutMs.map { L("\(formatDuration(m.startedAt.addingTimeInterval(Double($0) / 1000).timeIntervalSinceNow))後に期限",
+                                          "expires in \(formatDuration(m.startedAt.addingTimeInterval(Double($0) / 1000).timeIntervalSinceNow))") } ?? ""
+                return "· \(what)" + (until.isEmpty ? "" : L("（\(until)）", " (\(until))"))
+            }
+            meta.addArrangedSubview(withHoverTip(
+                metaSymbolLabel("binoculars.fill", row.monitors.count > 1 ? "\(row.monitors.count)" : "",
+                                color: Cat.lavender),
+                L("モニター稼働中:", "monitor running:") + "\n" + lines.joined(separator: "\n")))
         }
         if row.sessionId == dropSentSession { meta.addArrangedSubview(metaSymbolLabel("paperclip", L("送信済み", "sent"), color: Cat.green)) }
         if row.stale { meta.addArrangedSubview(metaSymbolLabel("clock", "stale?", color: Cat.peach)) }

@@ -170,6 +170,9 @@ extension AppDelegate {
             let age = Int(now.timeIntervalSince(r.statusSince))
             w("[\(r.backend)] \(r.status)\(r.stale ? " STALE" : "") | \(r.label) | sess=\(r.sessionId.prefix(8)) zellij=\(r.zellijSession ?? "-")\(r.zellijPaneId.map { ":p\($0)" } ?? "")\(r.zellijSendable ? "(sendable)" : "") branch=\(r.branch ?? "-") ±\(r.changedFiles.map(String.init) ?? "-") ctx=\(ctx) age=\(age)s links=\(r.links.count) agents=\(r.subagents.count) parent=\(r.parentSessionId.map { String($0.prefix(8)) } ?? "-")")
             if let act = r.activity { w("    prompt=\(act.prefix(80))") }
+            if r.shellRunning || !r.monitors.isEmpty || r.isWorktree {
+                w("    marks shell=\(r.shellRunning) worktree=\(r.isWorktree) monitors=\(r.monitors.map { "\($0.taskId)\($0.persistent ? "(persistent)" : "")" })")
+            }
             for l in r.links { w("    link \(l.label): \(l.favicon ?? "") \(l.title.map { String($0.prefix(40)) } ?? "-") | \(l.url)") }
             if let lm = r.lastMessage { w("    last=\(lm.prefix(70))") }
             for a in r.subagents { w("    subagent \(a.type) [\(a.working ? "working" : "idle")]\(a.name.map { " \($0)" } ?? "")") }
@@ -288,12 +291,23 @@ extension AppDelegate {
         DispatchQueue.global(qos: .utility).async {
             let t0 = Date()
             let rows = fetchAgents()
+            // Startup disk for the dashboard gauge. "available" is the important-usage figure —
+            // what Finder shows, purgeable space included (see diskUsedFraction). ~8ms, so it rides
+            // every refresh instead of needing its own guard.
+            let vol = try? URL(fileURLWithPath: "/").resourceValues(
+                forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityForImportantUsageKey])
+            let disk = vol.flatMap { v in
+                v.volumeTotalCapacity.flatMap { t in
+                    v.volumeAvailableCapacityForImportantUsage.map { (total: Int64(t), available: $0) }
+                }
+            }
             // Timing evidence for the /tmp/shepherd-deck.log capture (stderr is unbuffered;
             // stdout would sit in stdio's file buffer).
             let line = String(format: "refresh %.2fs rows=%d\n", Date().timeIntervalSince(t0), rows.count)
             FileHandle.standardError.write(line.data(using: .utf8)!)
             DispatchQueue.main.async {
                 self.lastRows = rows
+                if let disk { self.diskSpace = disk }   // a failed read keeps the last value
                 self.updateReplyWaiting(rows: rows)
                 if self.canRebuildNow() { self.rebuild(rows: rows) }
                 if self.deck != nil { self.renderDeck() }

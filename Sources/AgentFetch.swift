@@ -137,6 +137,11 @@ func fetchAgents() -> [AgentRow] {
         factsLock.unlock()
 
         let ctx = transcriptCtx(cwd: cwd, sessionId: e.sessionId)
+        // The registry's startedAt is this PROCESS's start (a resume re-uses the transcript with a
+        // new process) — monitors from before it died with the old process (sessionTaskMarks).
+        let marks = sessionTaskMarks(
+            transcriptTaskState(cwd: cwd, sessionId: e.sessionId, registryStatus: reg?.status),
+            status: status, hasJob: job != nil, processStartedAt: reg?.startedAt ?? e.startedAt)
         let g = cwd.isEmpty ? GitFacts(isWorktree: false) : gitFacts(cwd: cwd)
         let dirName = (cwd as NSString).lastPathComponent
         let parentName = ((cwd as NSString).deletingLastPathComponent as NSString).lastPathComponent
@@ -201,7 +206,9 @@ func fetchAgents() -> [AgentRow] {
                         // The session's own env first (see envConfigDirs above); the registry file's
                         // location is the fallback for a row whose process env we couldn't read.
                         configDir: env.configDir ?? reg?.configDir,
-                        effort: ctx.effort, fastMode: ctx.fast, contextWindowTokens: ctx.window)
+                        effort: ctx.effort, fastMode: ctx.fast,
+                        shellRunning: marks.shell, monitors: marks.monitors,
+                        contextWindowTokens: ctx.window)
     }
 
     // Each row's facts are dominated by subprocess / file IO, so build rows concurrently — wall-clock
@@ -235,7 +242,8 @@ func fetchAgents() -> [AgentRow] {
                 parent: r, rec: rec, git: gitFacts(cwd: agentCwd),
                 context: transcriptCtx(cwd: r.cwd, sessionId: key),
                 activity: rec.activity ?? rec.description ?? rec.name,
-                links: extractLinksFromTranscript(cwd: r.cwd, sessionId: key)))
+                links: extractLinksFromTranscript(cwd: r.cwd, sessionId: key),
+                tasks: transcriptTaskState(cwd: r.cwd, sessionId: key)))
         }
     }
     rows += subagentRows
@@ -275,6 +283,7 @@ func fetchAgents() -> [AgentRow] {
     contextCache = contextCache.filter { liveSessions.contains($0.key) }
     transcriptLinksCache = transcriptLinksCache.filter { liveSessions.contains($0.key) }
     teammateIdleCache = teammateIdleCache.filter { liveSessions.contains($0.key) }
+    transcriptTaskCache = transcriptTaskCache.filter { liveSessions.contains($0.key) }
     forkKeyCache = forkKeyCache.filter { liveSessions.contains($0.key) }
     blockedStateCache = blockedStateCache.filter { liveSessions.contains($0.key) }
     transcriptErrorCache = transcriptErrorCache.filter { liveSessions.contains($0.key) }

@@ -39,6 +39,11 @@ var transcriptLinksCache: [String: (links: [AgentLink], offset: UInt64)] = [:]
 // Guarded by factsLock.
 var teammateIdleCache: [String: (idleAt: [String: TeammateIdle], offset: UInt64)] = [:]
 
+// key: session id (or a subagent's transcriptKey). Shell / monitor task state folded from the
+// transcript, plus the byte offset already folded (incremental; stops at the last full line).
+// Guarded by factsLock.
+var transcriptTaskCache: [String: (state: TranscriptTaskState, offset: UInt64)] = [:]
+
 // key: session id. When a delta scan last saw a RE-publish of an Artifact URL the session already
 // carried (a redeploy — same URL, new content). The card's Artifact badge glows amber briefly
 // after this stamp, telling the user an open browser tab needs a reload (P4). Guarded by factsLock.

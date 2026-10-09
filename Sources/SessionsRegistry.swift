@@ -39,9 +39,15 @@ var claudeSessionsDir = (NSHomeDirectory() as NSString).appendingPathComponent("
 
 // The registry's status vocabulary → the board's. The CLI validates `status` against exactly four
 // values (busy / shell / idle / waiting — read out of the binary, 2026-07-10) and drops anything
-// else, so this switch is total: `shell` is an idle session whose user is typing a `!` shell
-// command. A compacting session simply reads `busy`; `error` comes from the transcript
-// (transcriptErrored) or, for a background worker, the daemon's `failed` state.
+// else, so this switch is total. `shell` is an IDLE turn that still holds a live background shell
+// task: the CLI writes `status: idle && <any local_bash task not finished> ? "shell" : status`
+// (CLI 2.1.288 binary, 2026-10-10), and both a `run_in_background` Bash and a Monitor watch are
+// local_bash tasks (task ids "b…"). Its own TUI renders busy and shell alike as "working", but the
+// TURN is idle — nothing is waiting on the model — so it maps to idle here; the running Monitor is
+// surfaced separately as the card's monitor mark (sessionTaskMarks). (An earlier reading of
+// `shell` as "the user is typing a `!` command" was wrong.) A compacting session simply reads
+// `busy`; `error` comes from the transcript (transcriptErrored) or, for a background worker, the
+// daemon's `failed` state.
 func statusFromRegistry(_ e: SessionRegistryEntry) -> String {
     switch e.status {
     case "busy": return "working"

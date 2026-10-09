@@ -1039,3 +1039,161 @@ func transcriptCtx(cwd: String, sessionId: String) -> TranscriptContext {
     factsLock.unlock()
     return info
 }
+
+// MARK: - Shell / monitor marks
+//
+// What a session has running that its turn state alone doesn't say (measured 2026-10-08/10):
+//
+// shell — a foreground Bash call in flight: a `tool_use` of the newest assistant message with no
+//   `tool_result` yet. The main chain writes the tool_use BEFORE the command runs (a queued-prompt
+//   record lands between a Bash tool_use at 05:36:25 and its result at 05:43:00 in a real
+//   transcript), so the gap is visible on disk. `run_in_background` calls return at once and are
+//   skipped. A new assistant message id drops anything older — a turn interrupted mid-call can
+//   leave a tool_use that never gets its result.
+//
+// monitor — a Monitor tool's watch, which keeps running long after its tool_use returned:
+//   start  the Monitor tool_result's `toolUseResult` {taskId, timeoutMs, persistent}
+//   end    a <task-notification> naming that <task-id> WITH a <status> (completed / failed /
+//          killed / stopped — mid-stream event notices carry no <status>), as a user record or a
+//          queue-operation; or a successful TaskStop result carrying `task_id`
+//   The CLI itself says a UI stop, a Monitor timeout and agent teardown "leave no transcript
+//   marker" (its resume notice), so the deterministic backstop is the timeout: a non-persistent
+//   monitor is over at start + timeoutMs. A persistent one runs until TaskStop or session end.
+//   A subagent's monitor notifications land in its own jsonl (and in the lead's), so a child card
+//   reads its own file the same way.
+struct MonitorTask: Equatable {
+    let taskId: String
+    let description: String?
+    let startedAt: Date
+    let timeoutMs: Int?
+    let persistent: Bool
+}
+
+struct TranscriptTaskState: Equatable {
+    var lastMessageId: String? = nil
+    var pendingTools: [String: String] = [:]         // tool_use id → tool name (newest message only)
+    var monitorDescriptions: [String: String] = [:]  // Monitor tool_use id → its description
+    var monitors: [String: MonitorTask] = [:]        // task id → a started, not-yet-ended monitor
+}
+
+// Fold one transcript slice into the state. Pure. `ownSidechain` = the slice is a subagent's own
+// jsonl, where every line is sidechain (see readTranscriptContext).
+func foldTaskState(_ st: inout TranscriptTaskState, slice: String, ownSidechain: Bool) {
+    // Every <task-notification> in `text` that carries a <status> ends the task it names.
+    func endTasks(in text: String) {
+        guard text.contains("<task-notification>") else { return }
+        for chunk in text.components(separatedBy: "<task-notification>").dropFirst()
+        where chunk.contains("<status>") {
+            if let id = lastMatchString("<task-id>([^<]+)</task-id>", in: chunk) { st.monitors[id] = nil }
+        }
+    }
+    for line in slice.split(separator: "\n") {
+        // Cheap substring gate before JSON parsing (the first pass covers up to 4MB): only an
+        // assistant record (tool_use / message-id reset), a tool_result (Bash/Monitor/TaskStop
+        // returns) or a task-notification can change the state.
+        guard line.contains("\"assistant\"") || line.contains("tool_result")
+                || line.contains("task-notification"),
+              let d = line.data(using: .utf8),
+              let obj = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { continue }
+        let type = obj["type"] as? String
+        if type == "queue-operation" { endTasks(in: obj["content"] as? String ?? ""); continue }
+        guard ownSidechain || (obj["isSidechain"] as? Bool) != true,
+              let msg = obj["message"] as? [String: Any] else { continue }
+        if type == "assistant" {
+            if let id = msg["id"] as? String, id != st.lastMessageId {
+                st.lastMessageId = id
+                st.pendingTools = [:]
+                st.monitorDescriptions = [:]
+            }
+            for b in msg["content"] as? [[String: Any]] ?? [] where (b["type"] as? String) == "tool_use" {
+                guard let id = b["id"] as? String, let name = b["name"] as? String else { continue }
+                let input = b["input"] as? [String: Any]
+                if name == "Bash", (input?["run_in_background"] as? Bool) == true { continue }
+                st.pendingTools[id] = name
+                if name == "Monitor" { st.monitorDescriptions[id] = input?["description"] as? String }
+            }
+        } else if type == "user" {
+            if let text = msg["content"] as? String { endTasks(in: text); continue }
+            let result = obj["toolUseResult"] as? [String: Any]
+            for b in msg["content"] as? [[String: Any]] ?? [] {
+                if (b["type"] as? String) == "text" { endTasks(in: b["text"] as? String ?? ""); continue }
+                guard (b["type"] as? String) == "tool_result", let id = b["tool_use_id"] as? String,
+                      let name = st.pendingTools.removeValue(forKey: id) else { continue }
+                if name == "Monitor", let taskId = result?["taskId"] as? String {
+                    st.monitors[taskId] = MonitorTask(
+                        taskId: taskId, description: st.monitorDescriptions[id],
+                        startedAt: parseUsageISODate(obj["timestamp"] as? String) ?? Date(),
+                        timeoutMs: result?["timeoutMs"] as? Int,
+                        persistent: result?["persistent"] as? Bool ?? false)
+                } else if name == "TaskStop", (b["is_error"] as? Bool) != true,
+                          let taskId = result?["task_id"] as? String {
+                    st.monitors[taskId] = nil
+                }
+                st.monitorDescriptions[id] = nil
+            }
+        }
+    }
+}
+
+// The card's shell / monitor marks from the folded state. Pure.
+// - shell only while the board already says "working" (a killed turn's orphan never sticks), and
+//   never on a daemon row: a background worker flushes its assistant lines at turn end, so its
+//   transcript can't show a call in flight (landmine list).
+// - a monitor started before the CURRENT process did (`processStartedAt`: the registry's / CLI's
+//   startedAt) belonged to an earlier process of the same session — a resume or fork re-uses the
+//   transcript, and that process's tasks died with it — so it is dropped.
+// - a non-persistent monitor is over at start + timeoutMs (its timeout leaves no marker).
+func sessionTaskMarks(_ st: TranscriptTaskState, status: String, hasJob: Bool,
+                      processStartedAt: Date?, now: Date = Date()) -> (shell: Bool, monitors: [MonitorTask]) {
+    let shell = status == "working" && !hasJob && st.pendingTools.values.contains("Bash")
+    let live = st.monitors.values.filter { m in
+        if let p = processStartedAt, m.startedAt < p { return false }
+        guard !m.persistent, let t = m.timeoutMs else { return true }
+        return now < m.startedAt.addingTimeInterval(Double(t) / 1000)
+    }
+    return (shell, live.sorted { $0.startedAt < $1.startedAt })
+}
+
+// The folded task state of a session's (or a subagent's) transcript. Incremental like
+// teammateIdleTimes — the first read covers the trailing transcriptScanTail, later reads only the
+// appended bytes — but it stops at the last newline: a line still being written is left for the
+// next pass instead of being skipped for good (a monitor's start or end must not be lost).
+//
+// registryStatus "idle" (as opposed to "shell") means the session holds NO live local_bash task,
+// and a Monitor is one (task id "b…", the local_bash prefix; the CLI writes status "shell" for an
+// idle turn exactly when such a task is alive — read from the binary, 2026-10-10). So an idle
+// sighting EMPTIES the cached monitors — not just hides them — clearing a persistent monitor the
+// UI stopped without a transcript marker for good: it must not come back when the session goes
+// busy again.
+func transcriptTaskState(cwd: String, sessionId: String, registryStatus: String? = nil) -> TranscriptTaskState {
+    guard !cwd.isEmpty, !sessionId.isEmpty else { return TranscriptTaskState() }
+    let path = (transcriptDir(cwd: cwd, sessionId: sessionId) as NSString)
+        .appendingPathComponent("\(sessionId).jsonl")
+    factsLock.lock()
+    let cached = transcriptTaskCache[sessionId]
+    factsLock.unlock()
+    var st = cached?.state ?? TranscriptTaskState()
+    var offset = cached?.offset ?? 0
+    if let fh = FileHandle(forReadingAtPath: path) {
+        defer { try? fh.close() }
+        let size = (try? fh.seekToEnd()) ?? 0
+        var start = offset
+        if start > size { start = 0; st = TranscriptTaskState() }   // truncated/rotated
+        if size > transcriptScanTail { start = max(start, size - transcriptScanTail) }
+        if start < size, (try? fh.seek(toOffset: start)) != nil,
+           let data = try? fh.readToEnd(),
+           let lastNewline = data.lastIndex(of: UInt8(ascii: "\n")) {
+            let complete = data[data.startIndex...lastNewline]
+            foldTaskState(&st, slice: String(decoding: complete, as: UTF8.self),
+                          ownSidechain: sessionId.contains("/subagents/"))
+            offset = start + UInt64(complete.count)
+        }
+    }
+    if registryStatus == "idle" { st.monitors = [:] }
+    if st != cached?.state || offset != cached?.offset {
+        factsLock.lock()
+        transcriptTaskCache[sessionId] = (st, offset)
+        factsLock.unlock()
+    }
+    return st
+}

@@ -75,6 +75,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NST
     // Last fetch's failure, kept SEPARATE from lastUsage: an error must not wipe the gauges
     // (stale-while-error — the old numbers stay up, dimmed, with a "更新失敗" stamp).
     var usageError: String?
+    // Startup disk (bytes) for the dashboard's disk gauge — local, so it shows whether or not the
+    // OAuth usage fetch worked. Read on refresh()'s background hop (~8ms a call, measured).
+    var diskSpace: (total: Int64, available: Int64)?
     // Extra-usage credits are being consumed RIGHT NOW (creditBurnActive over consecutive usage
     // snapshots — see ClaudeUsage.swift for why this is account-level, not per-session). Drives the
     // amber coin on every working card + the header chip. SHEPHERD_FAKE_CREDIT_BURN=1 pins it on
