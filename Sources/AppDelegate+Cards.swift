@@ -532,15 +532,38 @@ extension AppDelegate {
         // (Workspace isn't arrow.triangle.branch: on the card face that glyph is the fork mark —
         // family strip and thread node — and the right-click menu uses it for a worktree's
         // directory item; a third meaning on the face would read as "fork".)
+        // Sized to the strip's own line box, never taller (2026-10-10: the marks were too small):
+        // the meta strip is 13pt high — set by its 10.5pt labels (fittingSize 13; the context pie
+        // is 10) — so each glyph gets the largest pointSize whose INK fits 13pt (measured at 2x:
+        // terminal 14pt → ink 13, binoculars.fill 13pt → 13, square.stack.3d.up 11pt → 13; was
+        // ~9pt of ink as a text attachment). The image view is pinned to the line height and draws
+        // unscaled and centered, so only the transparent symbol padding overhangs the box and the
+        // card's height doesn't move.
+        let markLineH = metaLabel("0").fittingSize.height
+        func metaMark(_ symbol: String, pointSize: CGFloat, color: NSColor, count: Int? = nil) -> NSView {
+            let iv = NSImageView(image: symbolImage(symbol, size: pointSize, color: color) ?? NSImage())
+            iv.imageScaling = .scaleNone
+            iv.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                iv.heightAnchor.constraint(equalToConstant: markLineH),
+                iv.widthAnchor.constraint(equalToConstant: iv.image?.size.width ?? markLineH),
+            ])
+            guard let count else { return iv }
+            let n = makeLabel("\(count)", size: 10.5, weight: .bold, color: color)
+            n.setContentCompressionResistancePriority(.required, for: .horizontal)
+            let pair = NSStackView(views: [iv, n])
+            pair.orientation = .horizontal; pair.spacing = 1; pair.alignment = .centerY
+            return pair
+        }
         if row.isWorktree {
             meta.addArrangedSubview(withHoverTip(
-                metaSymbolLabel("square.stack.3d.up", "", color: Cat.pink),
+                metaMark("square.stack.3d.up", pointSize: 11, color: Cat.pink),
                 L("ワークスペース: git worktree 内で作業中（\(row.dirName)）",
                   "workspace: working inside a git worktree (\(row.dirName))")))
         }
         if row.shellRunning {
             meta.addArrangedSubview(withHoverTip(
-                metaSymbolLabel("terminal", "", color: Cat.sky),
+                metaMark("terminal", pointSize: 14, color: Cat.sky),
                 L("シェル: Bash コマンドを実行中", "shell: a Bash command is running")))
         }
         if !row.monitors.isEmpty {
@@ -552,8 +575,8 @@ extension AppDelegate {
                 return "· \(what)" + (until.isEmpty ? "" : L("（\(until)）", " (\(until))"))
             }
             meta.addArrangedSubview(withHoverTip(
-                metaSymbolLabel("binoculars.fill", row.monitors.count > 1 ? "\(row.monitors.count)" : "",
-                                color: Cat.lavender),
+                metaMark("binoculars.fill", pointSize: 13, color: Cat.lavender,
+                         count: row.monitors.count > 1 ? row.monitors.count : nil),
                 L("モニター稼働中:", "monitor running:") + "\n" + lines.joined(separator: "\n")))
         }
         if row.sessionId == dropSentSession { meta.addArrangedSubview(metaSymbolLabel("paperclip", L("送信済み", "sent"), color: Cat.green)) }
