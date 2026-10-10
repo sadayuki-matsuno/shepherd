@@ -87,7 +87,7 @@ func runModelsTests() {
         expectNil(diskUsedFraction(total: 0, available: 0), "no capacity → nil")
         expectEq(diskUsedFraction(total: 100, available: 150), 0, "available > total clamps to 0")
         expectEq(diskUsedFraction(total: 100, available: -5), 1, "negative available clamps to 1")
-        expect(diskGaugeColor(0.79) == Cat.green, "<80% green")
+        expect(diskGaugeColor(0.79) == Cat.subtext, "<80% a quiet neutral, not the plan gauges' green")
         expect(diskGaugeColor(0.80) == Cat.peach, "80% peach")
         expect(diskGaugeColor(0.90) == Cat.red, "90% red")
     }

@@ -670,7 +670,8 @@ extension AppDelegate {
 
     // One usage gauge row: label · track with a filled portion · percent + reset countdown.
     // Colored by the API's severity, falling back to the used-percent (green→peach→red).
-    func usageGauge(_ w: UsageWindow, color override: NSColor? = nil, text: String? = nil) -> NSView {
+    func usageGauge(_ w: UsageWindow, color override: NSColor? = nil, text: String? = nil,
+                    symbol: String? = nil) -> NSView {
         let color: NSColor = override ?? {
             switch w.severity {
             case "critical", "severe": return Cat.red
@@ -681,7 +682,8 @@ extension AppDelegate {
         let row = NSStackView()
         row.orientation = .horizontal; row.spacing = 6; row.alignment = .centerY
 
-        let name = makeLabel(w.label, size: 10.5, weight: .medium, color: Cat.subtext)
+        let name = symbol.map { symbolLabel($0, w.label, size: 10.5, weight: .medium, color: Cat.subtext) }
+            ?? makeLabel(w.label, size: 10.5, weight: .medium, color: Cat.subtext)
         name.setContentHuggingPriority(.required, for: .horizontal)
         name.widthAnchor.constraint(equalToConstant: 58).isActive = true
 
@@ -859,6 +861,45 @@ extension AppDelegate {
 
         let stale = usageError != nil && !(lastUsage?.windows.isEmpty ?? true)
 
+        // Two sections (2026-10-10, user decision — the disk sat among the plan limits and read as
+        // one of them): "This Mac" (the startup disk) on top, a hairline, then "plan usage" with
+        // its own fetched-at stamp, ↻, stale dimming and the credit column. The disk row is local
+        // and never dimmed. Text is the amount, "used / total" (diskUsageText; % in the hover);
+        // the bar fills by used % in diskGaugeColor's quiet neutral / peach / red. In the
+        // minimized strip only from 80% (the strip keeps what needs attention) and WITHOUT the
+        // "This Mac" heading — the drive glyph + label name the row, and a heading would cost the
+        // strip a second line for one gauge; the hairline still parts it from the plan gauges.
+        var diskRow: NSView?
+        if let d = diskSpace, let used = diskUsedFraction(total: d.total, available: d.available),
+           !compact || used >= 0.80 {
+            let gb = { (b: Int64) in ByteCountFormatter.string(fromByteCount: b, countStyle: .file) }
+            let row = usageGauge(UsageWindow(key: "disk", label: L("ディスク", "disk"), percent: used * 100,
+                                             resetsAt: nil, severity: "normal"),
+                                 color: diskGaugeColor(used),
+                                 text: diskUsageText(used: d.total - d.available, total: d.total),
+                                 symbol: "internaldrive")
+            let pct = Int((used * 100).rounded())
+            diskRow = withHoverTip(row, L(
+                "起動ディスク: 使用 \(gb(d.total - d.available)) / 全 \(gb(d.total))（\(pct)%）・空き \(gb(d.available))",
+                "startup disk: \(gb(d.total - d.available)) used of \(gb(d.total)) (\(pct)%) · \(gb(d.available)) free"))
+        }
+        if let diskRow {
+            if !compact {
+                let macTitle = makeLabel(L("この Mac", "This Mac"), size: 10, weight: .bold, color: Cat.overlay)
+                box.addArrangedSubview(macTitle)
+                box.setCustomSpacing(4, after: macTitle)
+            }
+            box.addArrangedSubview(diskRow)
+            let rule = NSView()
+            rule.wantsLayer = true
+            rule.layer?.backgroundColor = Cat.surface1.withAlphaComponent(0.55).cgColor
+            rule.translatesAutoresizingMaskIntoConstraints = false
+            rule.heightAnchor.constraint(equalToConstant: 1).isActive = true
+            box.addArrangedSubview(rule)
+            rule.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
+            box.setCustomSpacing(7, after: diskRow)
+        }
+
         let head = NSStackView()
         head.orientation = .horizontal; head.spacing = 7; head.alignment = .centerY
         let title = makeLabel(L("プラン使用量", "plan usage"), size: 10, weight: .bold, color: Cat.overlay)
@@ -909,32 +950,8 @@ extension AppDelegate {
         box.addArrangedSubview(head)
         head.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
 
-        // Startup disk (2026-10-10): the FIRST gauge row (user decision), in the same vocabulary —
-        // the bar is filled by used % and colored by diskGaugeColor, but its text is the amount,
-        // "used / total" (diskUsageText; the % is in the hover). Built OUTSIDE the usage branch
-        // and the stale dimming — it's local, so it shows (undimmed) whether or not the OAuth
-        // fetch worked. In the minimized strip only once it's worth a line (≥80%, peach): the
-        // strip keeps the numbers that need attention, and a healthy disk doesn't.
-        var diskRow: NSView?
-        if let d = diskSpace, let used = diskUsedFraction(total: d.total, available: d.available),
-           !compact || used >= 0.80 {
-            let gb = { (b: Int64) in ByteCountFormatter.string(fromByteCount: b, countStyle: .file) }
-            let row = usageGauge(UsageWindow(key: "disk", label: L("ディスク", "disk"), percent: used * 100,
-                                             resetsAt: nil, severity: "normal"),
-                                 color: diskGaugeColor(used),
-                                 text: diskUsageText(used: d.total - d.available, total: d.total))
-            let pct = Int((used * 100).rounded())
-            diskRow = withHoverTip(row, L(
-                "起動ディスク: 使用 \(gb(d.total - d.available)) / 全 \(gb(d.total))（\(pct)%）・空き \(gb(d.available))",
-                "startup disk: \(gb(d.total - d.available)) used of \(gb(d.total)) (\(pct)%) · \(gb(d.available)) free"))
-        }
-
         let gauges = NSStackView()
         gauges.orientation = .vertical; gauges.spacing = 5; gauges.alignment = .leading
-        if let diskRow {
-            gauges.addArrangedSubview(diskRow)
-            diskRow.widthAnchor.constraint(equalTo: gauges.widthAnchor).isActive = true
-        }
         let usage = lastUsage.flatMap { $0.windows.isEmpty ? nil : $0 }
         if let usage {
             // Order: session, weekly, then any model-scoped windows.
@@ -971,6 +988,16 @@ extension AppDelegate {
         }
         box.addArrangedSubview(content)
         content.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
+        // The disk row spans exactly the plan gauges' column, so every track ends at the same x
+        // whether or not the credit column is beside the plan gauges. Below required: in the
+        // 1-column preset that column is too narrow for "353 / 494 GB", and the amount must not
+        // truncate — the row then simply runs wider (its own section, so nothing sits beside it).
+        if let diskRow {
+            let align = diskRow.widthAnchor.constraint(equalTo: gauges.widthAnchor)
+            align.priority = .defaultHigh
+            align.isActive = true
+            diskRow.widthAnchor.constraint(lessThanOrEqualToConstant: innerWidth).isActive = true
+        }
         box.widthAnchor.constraint(equalToConstant: width - 20).isActive = true
 
         // Wrap in a faintly tinted card to set it apart from the agent rows.

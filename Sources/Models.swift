@@ -116,10 +116,12 @@ func diskUsedFraction(total: Int64, available: Int64) -> Double? {
     return min(1, max(0, Double(total - available) / Double(total)))
 }
 
-// Disk gauge color: the plan-usage gauges' palette, but at 80 / 90 rather than their 60 / 85 —
-// a disk sits at 60–75% for months, and a gauge that is always peach stops meaning anything.
+// Disk gauge color. Normally a quiet neutral (subtext — still clearly brighter than the track),
+// NOT the plan gauges' green: the disk sits in its own "This Mac" section and must not read as
+// one more plan limit (user decision, 2026-10-10). Peach from 80%, red from 90% — not the plan
+// gauges' 60 / 85: a disk sits at 60–75% for months, and a gauge always in warning means nothing.
 func diskGaugeColor(_ fraction: Double) -> NSColor {
-    fraction >= 0.90 ? Cat.red : fraction >= 0.80 ? Cat.peach : Cat.green
+    fraction >= 0.90 ? Cat.red : fraction >= 0.80 ? Cat.peach : Cat.subtext
 }
 
 // The leading symbol for a title that is a mid-call tool line ("⚙ <tool>: <what>" / "⚙ <tool>",
