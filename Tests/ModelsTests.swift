@@ -368,9 +368,14 @@ func runModelsTests() {
         expectEq(hudScale(visibleHeight: 1400, setting: .p80), 0.8)
         expectEq(hudScale(visibleHeight: 1400, setting: .p90), 0.9)
         expectEq(hudScale(visibleHeight: nil, setting: .p90), 0.9)
+        expectEq(hudScale(visibleHeight: 1400, setting: .p70), 0.7, "manual can go below auto's 80% floor")
+        expectEq(hudScale(visibleHeight: 2000, setting: .p60), 0.6)
+        expectEq(HUDScaleSetting(rawValue: "70"), .p70)
+        expectEq(HUDScaleSetting(rawValue: "60"), .p60)
+        expectEq(HUDScaleSetting.allCases.map(\.rawValue), ["auto", "100", "90", "80", "70", "60"], "menu order")
         expectEq(HUDScaleSetting(rawValue: "80"), .p80, "defaults raw values are the percentages")
         expectEq(HUDScaleSetting(rawValue: "auto"), .auto)
-        expectNil(HUDScaleSetting(rawValue: "70"), "unknown raw value")
+        expectNil(HUDScaleSetting(rawValue: "50"), "unknown raw value")
     }
 
     test("shortSessionId: the first UUID segment is the agent-view / `claude stop` id") {

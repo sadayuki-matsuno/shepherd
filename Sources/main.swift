@@ -27,7 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NST
     // HUD サイズモード: auto=内容追従（従来）/ 小・中・大=固定サイズ（縦スクロールのみ）/
     // fullDisplay=載っているディスプレイの可視領域全面。⚙メニュー「HUDサイズ」で切り替え・永続化。
     var hudSizeMode: HUDSizeMode = HUDSizeMode(rawValue: defaults.string(forKey: "hudSizeMode") ?? "") ?? .auto
-    // 表示倍率: auto=ディスプレイ高から 80〜100% / 手動 100・90・80%。⚙メニュー「表示倍率」で永続化。
+    // 表示倍率: auto=ディスプレイ高から 80〜100% / 手動 100・90・80・70・60%。⚙メニュー「表示倍率」で永続化。
     // 実体は scrollView.magnification（rebuild の冒頭で毎回求め直す — 別ディスプレイへ移ったら変わる）。
     var hudScaleSetting: HUDScaleSetting = HUDScaleSetting(rawValue: defaults.string(forKey: "hudScale") ?? "") ?? .auto
     // documentView の幅＝clip view の幅÷倍率。widthAnchor は clip の frame 幅（物理）を指すので
