@@ -81,12 +81,14 @@ extension AppDelegate {
     // アイコンがノッチの裏に溢れる・メニューバーの表示許可で消される等で見えないときの逃げ道:
     // Finder / Spotlight / `open -a Shepherd` で起動し直すと（既に動いていれば reopen が来て）HUD を戻す。
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !panel.isVisible { showHUD() }
+        if !panel.isVisible && !regionCaptureActive { showHUD() }
         return false
     }
 
     @objc func toggleHUDVisible() {
         closeStatusHover()
+        // 範囲撮影中の非表示はユーザーの「隠す」ではない — ここで戻すと HUD が撮影に写り込む。
+        guard !regionCaptureActive else { return }
         if panel.isVisible { hideHUD() } else { showHUD() }
     }
 
@@ -130,7 +132,7 @@ extension AppDelegate {
         statusHoverCloseWork?.cancel()
         // HUD が出ているなら同じ情報は盤面にある — ホバーパネルは HUD を隠しているときだけ。
         // （出ている最中に HUD が戻った場合は showHUD が閉じる。）
-        if statusHoverPanel != nil || panel.isVisible { return }
+        if statusHoverPanel != nil || panel.isVisible || regionCaptureActive { return }
         let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: contentWidth, height: 60),
                         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         p.level = .popUpMenu   // HUD（.floating）より上
@@ -185,6 +187,9 @@ extension AppDelegate {
         let visible = (anchor.screen ?? NSScreen.main)?.visibleFrame ?? icon
         let x = min(max(icon.midX - size.width / 2, visible.minX + 8), visible.maxX - size.width - 8)
         p.setFrame(NSRect(x: x, y: icon.minY - statusHoverGap - size.height, width: size.width, height: size.height), display: true)
+        // 組み直しでパネルが縮む・動くと、静止したカーソルの下からパネルが抜けても exit は来ない。
+        // 位置での判定を一度走らせておく（カーソルがアイコン/パネルに居れば何もしない）。
+        scheduleStatusHoverClose()
     }
 
     // exit のたびに少し待ってから、カーソルがアイコンにもパネル（とアイコンとの隙間）にも居なければ閉じる。
@@ -196,7 +201,7 @@ extension AppDelegate {
             let mouse = NSEvent.mouseLocation
             let icon = self.statusItem?.button?.window?.frame ?? .zero
             let pf = p.frame
-            let panelArea = NSRect(x: pf.minX, y: pf.minY, width: pf.width, height: pf.height + self.statusHoverGap + 1)
+            let panelArea = NSRect(x: pf.minX, y: pf.minY, width: pf.width, height: pf.height + statusHoverGap + 1)
             if !icon.contains(mouse) && !panelArea.contains(mouse) { self.closeStatusHover() }
         }
         statusHoverCloseWork = work
@@ -214,5 +219,7 @@ extension AppDelegate {
         DispatchQueue.main.async { _ = p }
     }
 
-    var statusHoverGap: CGFloat { 4 }   // アイコン下端とパネル上端の隙間
 }
+
+private let statusHoverGap: CGFloat = 4   // アイコン下端とパネル上端の隙間
+

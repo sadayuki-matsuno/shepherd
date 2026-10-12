@@ -139,6 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NST
     var statusHoverPanel: NSPanel?
     var statusHoverTracker: HoverView?          // ボタンの tracking area の owner（area は owner を保持しない）
     var statusHoverCloseWork: DispatchWorkItem?
+    var regionCaptureActive = false   // 範囲撮影で HUD を一時的に隠している間（ユーザーの「隠す」と区別する）
 
     // ＋ new-session repo picker (search + list) and worktree-launch state.
     var repoPickerPopover: NSPopover?
