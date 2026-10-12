@@ -130,19 +130,20 @@ extension AppDelegate {
         // frame autosave gets confused by this multi-display setup, so we identify the
         // display by its stable UUID and remember the position relative to it.
         restorePlacement(size: rect.size)
+        // 表示倍率は基準ディスプレイ（hudLayoutScreen）で決まる。移動で基準が変わったとき・解像度/配置が
+        // 変わったときに組み直す。didChangeScreen（面積最大の画面の変化）ではなく移動で判定するのは、
+        // 基準が左上の画面なので通知と基準がずれるため。rebuild 自身の setFrame は基準を変えないので
+        // ループしない。async は rebuild 内の setFrame から同期で再入させないため。
         NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: panel, queue: .main) {
-            [weak self] _ in self?.savePlacement()
-        }
-        // 表示倍率は載っているディスプレイで決まる: 別ディスプレイへ移った・解像度/配置が変わったら
-        // 組み直して倍率を取り直す（rebuild の冒頭で求める）。
-        let screenChanges: [(Notification.Name, Any?)] = [
-            (NSWindow.didChangeScreenNotification, panel),
-            (NSApplication.didChangeScreenParametersNotification, nil),
-        ]
-        for (name, object) in screenChanges {
-            NotificationCenter.default.addObserver(forName: name, object: object, queue: .main) { [weak self] _ in
-                self?.rebuildForScreenChange()
+            [weak self] _ in
+            guard let self else { return }
+            self.savePlacement()
+            if self.hudLayoutScreen() != self.layoutScreen {
+                DispatchQueue.main.async { self.rebuildForScreenChange() }
             }
+        }
+        NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) {
+            [weak self] _ in DispatchQueue.main.async { self?.rebuildForScreenChange() }
         }
 
         rebuild(rows: nil)

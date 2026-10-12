@@ -968,6 +968,15 @@ extension AppDelegate {
         }
     }
 
+    // 倍率と固定サイズの基準ディスプレイ。fullDisplay は面積最大の画面（そこへ setFrame する）、それ以外は
+    // パネル左上の載る画面 — rebuild は左上固定でリサイズするので、2画面に跨っていても縮んだ結果
+    // 基準が入れ替わって倍率が往復しない。rebuild と didMove 監視（基準が変わったかの判定）で共用。
+    func hudLayoutScreen() -> NSScreen? {
+        let topLeft = NSPoint(x: panel.frame.minX + 1, y: panel.frame.maxY - 1)
+        return (hudSizeMode == .fullDisplay ? nil : NSScreen.screens.first { $0.frame.contains(topLeft) })
+            ?? screenUnderPanel() ?? NSScreen.main
+    }
+
     // Width the header / dashboard / hint line span: the board itself in auto, the panel's inner
     // width in the fixed modes (fullDisplay is wider than its N columns, and the toolbar should
     // still reach the panel's right edge).
@@ -989,19 +998,13 @@ extension AppDelegate {
         hideHoverTip()
         // 表示倍率（盤面全体を一律に縮める）。基準ディスプレイと倍率をここで1回だけ決め、以降の寸法計算
         // （fixedPanelSize / boardSpanWidth / fullDisplay の setFrame）はすべて layoutScreen /
-        // appliedScale を読む。基準は fullDisplay なら面積最大の画面（そこへ setFrame する）、それ以外は
-        // パネル左上の載る画面 — rebuild は左上固定でリサイズするので、2画面に跨っていても縮んだ結果
-        // 基準画面が入れ替わって倍率が往復する、ということが起きない。
+        // appliedScale を読む（基準の選び方は hudLayoutScreen）。
         // 方式の選定理由: magnification は AppKit 標準のズームなので、ヒットテスト・トラッキング
         // エリア・ポップオーバーの係留・右クリックメニューが座標変換込みで正しく動き、文字も倍率込みで
         // 描き直されてにじまない（2026-10-12 プロトで実測）。
         // 窓ドラッグ中（マウス押下中）は前回の基準を据え置く — 通常の refresh が画面を跨いだ瞬間に
-        // 来ても、カーソル下で窓の倍率が変わらないように。離した後は didChangeScreen の保留分が拾う。
-        if layoutScreen == nil || NSEvent.pressedMouseButtons == 0 {
-            let topLeft = NSPoint(x: panel.frame.minX + 1, y: panel.frame.maxY - 1)
-            layoutScreen = (hudSizeMode == .fullDisplay ? nil : NSScreen.screens.first { $0.frame.contains(topLeft) })
-                ?? screenUnderPanel() ?? NSScreen.main
-        }
+        // 来ても、カーソル下で窓の倍率が変わらないように。離した後は didMove 監視の保留分が拾う。
+        if layoutScreen == nil || NSEvent.pressedMouseButtons == 0 { layoutScreen = hudLayoutScreen() }
         let scale = hudScale(visibleHeight: layoutScreen?.visibleFrame.height, setting: hudScaleSetting)
         if scale != appliedScale {
             appliedScale = scale
