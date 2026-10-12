@@ -282,12 +282,6 @@ extension AppDelegate {
     // sessions-registry files are on the FSEvents stream, so hook-less status flips push their
     // own refresh.)
 
-    // May an async completion rebuild the board right now? Every background repaint asks this —
-    // a rebuild recreates every view, which would close an open popover (its anchor goes away),
-    // drop the drop-target mid-drag, or destroy the ARTIFACTS search field mid-word. The artifact
-    // hold is TIME-based (2s past the last keystroke) rather than currentEditor(): a field that
-    // keeps the field editor while the user works elsewhere would suppress every board update
-    // indefinitely. One predicate because four hand-copied versions had already drifted apart.
     // ディスプレイ移動・構成変更の rebuild。窓ドラッグの最中（画面を跨いだ瞬間に通知が来る）に
     // リサイズするとカーソル下で窓が縮んで/fullDisplay なら飛んでドラッグと喧嘩するので、マウスが
     // 離れるまで待つ。ポップオーバー中も同様に保留する（捨てると盤面が凍っていれば最大30秒、
@@ -305,6 +299,12 @@ extension AppDelegate {
         rebuild(rows: lastRows)
     }
 
+    // May an async completion rebuild the board right now? Every background repaint asks this —
+    // a rebuild recreates every view, which would close an open popover (its anchor goes away),
+    // drop the drop-target mid-drag, or destroy the ARTIFACTS search field mid-word. The artifact
+    // hold is TIME-based (2s past the last keystroke) rather than currentEditor(): a field that
+    // keeps the field editor while the user works elsewhere would suppress every board update
+    // indefinitely. One predicate because four hand-copied versions had already drifted apart.
     func canRebuildNow() -> Bool {
         replyPopover == nil && repoPickerPopover == nil && dropPopover == nil && helpPopover == nil
             && Date().timeIntervalSince(lastArtifactTypeAt) > 2.0

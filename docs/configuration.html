@@ -142,14 +142,14 @@
       <table>
         <tr><th>key</th><th>default</th><th>what it does</th></tr>
         <tr><td>sessionsCollapsed<br>artifactsBarCollapsed<br>routinesBarCollapsed</td><td>false</td><td>Whether each board section starts folded. Clicking a section's <code>⌄ / ›</code> bar writes these, so setting them by hand is only useful to pin a launch state:<br><code>defaults write com.sadayuki-matsuno.shepherd routinesBarCollapsed -bool true</code></td></tr>
-        <tr><td>hudScale</td><td>auto</td><td>Display scale of the whole HUD: <code>auto</code> (from the display's height — 100% at ~1400pt, 80% at ~950pt, clamped to 80–100%) or a fixed <code>100</code> / <code>90</code> / <code>80</code>. Same as ⚙ → Display scale:<br><code>defaults write com.sadayuki-matsuno.shepherd hudScale 90</code></td></tr>
+        <tr><td>hudScale</td><td>auto</td><td>Display scale of the whole HUD: <code>auto</code> (from the display's height — 100% at ~1400pt, 80% at ~950pt, clamped to 80–100% in 10% steps) or a fixed <code>100</code> / <code>90</code> / <code>80</code>. Same as ⚙ → Display scale:<br><code>defaults write com.sadayuki-matsuno.shepherd hudScale 90</code></td></tr>
       </table>
     </div>
     <div class="tbl-scroll" lang="ja">
       <table>
         <tr><th>キー</th><th>デフォルト</th><th>説明</th></tr>
         <tr><td>sessionsCollapsed<br>artifactsBarCollapsed<br>routinesBarCollapsed</td><td>false</td><td>各セクションを畳んだ状態で起動するか。セクションの <code>⌄ / ›</code> バーをクリックすると自動的に書かれるので、手で設定する意味があるのは起動時の状態を固定したいときだけです:<br><code>defaults write com.sadayuki-matsuno.shepherd routinesBarCollapsed -bool true</code></td></tr>
-        <tr><td>hudScale</td><td>auto</td><td>HUD 全体の表示倍率: <code>auto</code>（ディスプレイの高さから — 約1400pt で100%、約950pt で80%、80〜100% にクランプ）または固定の <code>100</code> / <code>90</code> / <code>80</code>。⚙ → 表示倍率と同じ:<br><code>defaults write com.sadayuki-matsuno.shepherd hudScale 90</code></td></tr>
+        <tr><td>hudScale</td><td>auto</td><td>HUD 全体の表示倍率: <code>auto</code>（ディスプレイの高さから — 約1400pt で100%、約950pt で80%、80〜100% を 10% 刻み）または固定の <code>100</code> / <code>90</code> / <code>80</code>。⚙ → 表示倍率と同じ:<br><code>defaults write com.sadayuki-matsuno.shepherd hudScale 90</code></td></tr>
       </table>
     </div>
 

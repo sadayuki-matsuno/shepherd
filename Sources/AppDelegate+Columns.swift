@@ -995,9 +995,13 @@ extension AppDelegate {
         // 方式の選定理由: magnification は AppKit 標準のズームなので、ヒットテスト・トラッキング
         // エリア・ポップオーバーの係留・右クリックメニューが座標変換込みで正しく動き、文字も倍率込みで
         // 描き直されてにじまない（2026-10-12 プロトで実測）。
-        let topLeft = NSPoint(x: panel.frame.minX + 1, y: panel.frame.maxY - 1)
-        layoutScreen = (hudSizeMode == .fullDisplay ? nil : NSScreen.screens.first { $0.frame.contains(topLeft) })
-            ?? screenUnderPanel() ?? NSScreen.main
+        // 窓ドラッグ中（マウス押下中）は前回の基準を据え置く — 通常の refresh が画面を跨いだ瞬間に
+        // 来ても、カーソル下で窓の倍率が変わらないように。離した後は didChangeScreen の保留分が拾う。
+        if layoutScreen == nil || NSEvent.pressedMouseButtons == 0 {
+            let topLeft = NSPoint(x: panel.frame.minX + 1, y: panel.frame.maxY - 1)
+            layoutScreen = (hudSizeMode == .fullDisplay ? nil : NSScreen.screens.first { $0.frame.contains(topLeft) })
+                ?? screenUnderPanel() ?? NSScreen.main
+        }
         let scale = hudScale(visibleHeight: layoutScreen?.visibleFrame.height, setting: hudScaleSetting)
         if scale != appliedScale {
             appliedScale = scale

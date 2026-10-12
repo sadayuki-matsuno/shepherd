@@ -96,7 +96,7 @@ defaults write com.sadayuki-matsuno.shepherd ghPath /opt/homebrew/bin/gh
 # useful for pinning a launch state: sessionsCollapsed / artifactsBarCollapsed / routinesBarCollapsed
 defaults write com.sadayuki-matsuno.shepherd routinesBarCollapsed -bool true
 
-# Display scale (also in ⚙ → Display scale): auto (default — from the display height, 80–100%) / 100 / 90 / 80
+# Display scale (also in ⚙ → Display scale): auto (default — from the display height, 80–100% in 10% steps) / 100 / 90 / 80
 defaults write com.sadayuki-matsuno.shepherd hudScale 90
 ```
 

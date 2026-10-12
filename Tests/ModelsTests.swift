@@ -350,12 +350,14 @@ func runModelsTests() {
         expectEq(hudFitColumns(panelWidth: 0, columnWidth: 268, gap: 12, sidePadding: 12), 1, "zero clamps to 1")
     }
 
-    test("hudScale auto: linear in the display's visible height, clamped to 80%…100%") {
+    test("hudScale auto: linear in the display's visible height, clamped to 80%…100%, 10% steps") {
         expectEq(hudScale(visibleHeight: 1400, setting: .auto), 1.0, "27-inch class is 100%")
         expectEq(hudScale(visibleHeight: 950, setting: .auto), 0.8, "built-in MBP class is 80%")
-        expect(abs(hudScale(visibleHeight: 1175, setting: .auto) - 0.9) < 0.0001, "midpoint is 90%")
-        let mbp = hudScale(visibleHeight: 982, setting: .auto)
-        expect(mbp > 0.8 && mbp < 0.82, "MBP 14\" (982pt) lands just above 80%")
+        expectEq(hudScale(visibleHeight: 1175, setting: .auto), 0.9, "midpoint is 90%")
+        expectEq(hudScale(visibleHeight: 982, setting: .auto), 0.8, "MBP 14\" (982pt) snaps to 80%")
+        expectEq(hudScale(visibleHeight: 1345, setting: .auto), 1.0, "27-inch with the Dock shown still 100%")
+        expectEq(hudScale(visibleHeight: 1100, setting: .auto), 0.9, "MBP 16\" class snaps to 90%")
+        expectEq(hudScale(visibleHeight: 1050, setting: .auto), 0.8, "0.844 snaps down to 80%")
         expectEq(hudScale(visibleHeight: 2000, setting: .auto), 1.0, "never enlarges past 100%")
         expectEq(hudScale(visibleHeight: 600, setting: .auto), 0.8, "never shrinks below 80%")
         expectEq(hudScale(visibleHeight: nil, setting: .auto), 1.0, "no display known → 100%")
