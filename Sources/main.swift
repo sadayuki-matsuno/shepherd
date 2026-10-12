@@ -9,6 +9,7 @@
 // Build: ./build.sh   (installs /Applications/Shepherd.app)
 import AppKit
 import ApplicationServices
+import IOKit.pwr_mgt
 import CoreGraphics
 import CoreServices
 import Security
@@ -89,6 +90,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NST
     // flag (default true) so the default can flip per user feedback without code churn (addendum).
     // done/idle no longer show a last-utterance line. Reply (⌘-click / menu) works regardless.
     var showBlockedQuestion = defaults.object(forKey: "showBlockedQuestion") == nil ? true : defaults.bool(forKey: "showBlockedQuestion")
+    // Keep the Mac awake while sessions work (IOKit power assertions, AppDelegate+Power). Sleep
+    // prevention defaults ON; display-sleep (= screen lock) prevention defaults OFF. Independent.
+    var preventSleepWhileWorking = defaults.object(forKey: "preventSleepWhileWorking") == nil ? true : defaults.bool(forKey: "preventSleepWhileWorking")
+    var preventDisplaySleepWhileWorking = defaults.bool(forKey: "preventDisplaySleepWhileWorking")
+    var sleepAssertionID: IOPMAssertionID?
+    var displaySleepAssertionID: IOPMAssertionID?
+    var sleepAssertionName = ""   // last name set — renames only when the count actually changes
     var stackWidthConstraint: NSLayoutConstraint!
     // Column mode geometry (B1/B3). Columns are a fixed width so collapsing a group's cards never
     // changes the slot width. Column count is overridable: `defaults write … masonryColumns 4`.
@@ -121,6 +129,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NST
     // Minimized: shrink the whole HUD to just the usage dashboard + the header summary (status
     // pills), hiding all agent rows/columns. Toggled from the header.
     var minimized = defaults.bool(forKey: "minimized")
+    // What the minimize button does (⚙ menu): hide into the menu bar (default) or shrink to the
+    // strip above. The hidden state itself is not persisted — launch always shows the HUD.
+    var minimizeAction = MinimizeAction(rawValue: defaults.string(forKey: "minimizeAction") ?? "") ?? .menuBar
+    // Menu-bar icon (AppDelegate+MenuBar): click toggles the HUD, badge = attentionCount.
+    var statusItem: NSStatusItem?
+    var statusItemCount = -1   // last badge drawn — redraw only when the count changes
+    // アイコンのホバーで出すストリップ情報パネル（nonactivating・key にならない）。
+    var statusHoverPanel: NSPanel?
+    var statusHoverTracker: HoverView?          // ボタンの tracking area の owner（area は owner を保持しない）
+    var statusHoverCloseWork: DispatchWorkItem?
+    var regionCaptureActive = false   // 範囲撮影で HUD を一時的に隠している間（ユーザーの「隠す」と区別する）
 
     // ＋ new-session repo picker (search + list) and worktree-launch state.
     var repoPickerPopover: NSPopover?

@@ -733,6 +733,46 @@ func removableRecord(_ row: AgentRow) -> String? {
     return shortSessionId(row.sessionId)
 }
 
+// How many rows should keep the Mac from idle-sleeping (the IOKit power assertion; 0 = release it).
+// A working row counts — including a teammate card under an idle lead, which is waiting on it. A
+// live bg worker (pid = still in the daemon) counts unless it is known to be resting: when the daemon
+// abstains its status stays "unknown" (the transcript lags a turn), and it may well be mid-turn.
+// blocked / idle / error are waiting on a human, so the Mac may sleep. An allowlist, not a denylist:
+// statusFromAgentState passes unknown daemon words through verbatim, and a future resting state
+// must fail toward letting the Mac sleep.
+// The benefit of the doubt is capped: an unknown worker whose last activity (the newest of the
+// row's own updatedAt / statusSince — no extra IO) is keepAwakeUnknownWorkerLimit old or more is
+// a parked worker the daemon keeps abstaining on, and must not hold the Mac up all night. Working
+// rows have no cap — a long turn is exactly what the assertion is for.
+let keepAwakeUnknownWorkerLimit: TimeInterval = 2 * 3600
+
+func keepAwakeCount(_ rows: [AgentRow], now: Date = Date()) -> Int {
+    rows.filter { r in
+        if r.status == "working" { return true }
+        guard r.isBackground, r.pid != nil, r.status == "unknown" else { return false }
+        let lastActivity = max(r.updatedAt ?? .distantPast, r.statusSince)
+        return now.timeIntervalSince(lastActivity) < keepAwakeUnknownWorkerLimit
+    }.count
+}
+
+// The menu-bar icon's badge: everything stopped on a human — blocked sessions (the same rows the
+// header's needs-input pill counts, so pass the 24h-filtered board) plus routines stopped at a
+// permission prompt (the ROUTINES section's approval chip). 0 = bare icon.
+func attentionCount(rows: [AgentRow], routines: [Routine]) -> Int {
+    rows.filter { $0.status == "blocked" }.count
+        + routines.filter { $0.liveState == "requires_action" }.count
+}
+
+// What the brand bar's minimize button does (⚙ menu, defaults `minimizeAction`). menuBar hides
+// the HUD entirely (the menu-bar icon brings it back); strip shrinks to the minimized strip.
+enum MinimizeAction: String { case menuBar, strip }
+
+// In menuBar mode the button hides the HUD — but only from the full board. A strip left over from
+// strip mode (`minimized` is persisted) must still expand on the button, or it is a dead end.
+func minimizeButtonHidesHUD(minimized: Bool, action: MinimizeAction) -> Bool {
+    !minimized && action == .menuBar
+}
+
 // A live background worker sitting idle/done is a *parked* process: nobody is looking at it, yet it
 // holds real memory (worker + pty-host ≈ 600MB, measured 2026-07-09) and keeps the cc-daemon and its
 // spare pool alive with it. That's exactly the forgotten waste this board exists to surface — and
