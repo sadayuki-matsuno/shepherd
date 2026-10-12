@@ -1164,6 +1164,30 @@ func hudFitColumns(panelWidth: CGFloat, columnWidth: CGFloat, gap: CGFloat, side
     max(1, Int((panelWidth - sidePadding * 2 + gap) / (columnWidth + gap)))
 }
 
+// HUD 表示倍率（盤面全体を一律に縮める — NSScrollView の magnification で掛ける）。defaults
+// `hudScale` の raw 値は百分率。auto はディスプレイの高さから決める。
+enum HUDScaleSetting: String, CaseIterable {
+    case auto, p100 = "100", p90 = "90", p80 = "80", p70 = "70", p60 = "60"
+}
+
+// 表示倍率。手動設定はそのまま（70%・60% は手動だけ — auto の下限 80% より小さくしたいとき用）、auto は載っているディスプレイの visibleFrame 高さの線形写像
+// （約1400pt 級=27インチで100%、内蔵 MBP の ~950pt で80%）を 80%〜100% にクランプし、手動と同じ
+// 10% 刻みに丸める（端数倍率は 1px の罫線がにじむ・Dock の表示/自動非表示で数%揺れるため —
+// Dock 付き 27インチの ~1345pt も 100% に収まる）。拡大はしない。高さ不明（ディスプレイ無し）は100%。
+func hudScale(visibleHeight: CGFloat?, setting: HUDScaleSetting) -> CGFloat {
+    switch setting {
+    case .p100: return 1.0
+    case .p90: return 0.9
+    case .p80: return 0.8
+    case .p70: return 0.7
+    case .p60: return 0.6
+    case .auto:
+        guard let h = visibleHeight else { return 1.0 }
+        let linear = min(1.0, max(0.8, 0.8 + (h - 950) * 0.2 / 450))
+        return (linear * 10).rounded() / 10
+    }
+}
+
 struct StatusStyle {
     let dot: NSColor
     let word: String

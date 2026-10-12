@@ -23,6 +23,7 @@ Shepherd sits in the corner of your screen and shows every Claude Code session o
 ## Features
 
 - **Always visible** — floats above every window and Space, drag it anywhere, position is remembered
+- **Fits the display** — the whole HUD scales with the display it sits on: 100% on a 27-inch-class screen, down to 80% on a laptop's built-in one, recomputed when you drag it to another display. Pin it — or go smaller — from ⚙ → Display scale (Auto / 100% / 90% / 80% / 70% / 60%)
 - **Menu-bar icon** — Shepherd always keeps an icon in the menu bar; click it to hide or bring back the HUD (position and size are kept). It carries an orange badge counting everything waiting on you — local sessions that need input plus routines waiting for approval — so a hidden HUD still tells you when to look. While the HUD is hidden, hover the icon for a peek: the same compact gauges and count pills as the minimized strip drop down under it, without taking keyboard focus from the app you're in. The HUD's minimize button hides into the menu bar by default; ⚙ → *Minimize button* switches it back to shrinking the HUD to a small strip. If the icon itself is out of sight (e.g. pushed behind the notch), launching Shepherd again brings the HUD back
 - **Live status** — pushed by FSEvents on `~/.claude/sessions` (no polling, no hooks); agents sorted by urgency (needs input → working → idle). Sessions started with a different `CLAUDE_CONFIG_DIR` are picked up automatically — Shepherd finds the config dirs in use from the running processes themselves, so there is nothing to configure
 - **Rich cards** — AI-generated task title behind a where-it-runs glyph (zellij panes, editor brackets, terminal window, bare headless prompt — hover for details) whose tint is the permission mode (lavender = plan, green = edits auto-accepted, amber = no-ask, red = bypass; the default and the newer `auto` mode stay plain grey), then instruments that show *how* the session runs at a glance: tier bars + name for the model (1 bar = Haiku … 4 = Fable) followed by the latest reply's reasoning effort (`OPUS · XHIGH`, read from the transcript — the only place the effective value is recorded; colored by level from grey at low up through green, yellow, and amber at max), a small bolt when that reply ran in fast mode, "→ speech bubble + name" when an `--advisor` model is paired (the arrow reads "consults"), and a folder glyph + short name when the session runs under a non-default `CLAUDE_CONFIG_DIR` (hover for the full path; default-dir sessions show nothing there). Plus context-window pie (yellow ≥ 60%, red ≥ 85%), elapsed time, changed-file count, issue number, and the session's Artifacts (one badge; 2+ collapse to "newest (+N)" with a picker). The PR + CI state lives on the right-click menu
@@ -96,6 +97,9 @@ defaults write com.sadayuki-matsuno.shepherd ghPath /opt/homebrew/bin/gh
 # Start a board section folded. Normally set by clicking the section's bar, so this is only
 # useful for pinning a launch state: sessionsCollapsed / artifactsBarCollapsed / routinesBarCollapsed
 defaults write com.sadayuki-matsuno.shepherd routinesBarCollapsed -bool true
+
+# Display scale (also in ⚙ → Display scale): auto (default — from the display height, 80–100% in 10% steps) / 100 / 90 / 80 / 70 / 60
+defaults write com.sadayuki-matsuno.shepherd hudScale 90
 
 # Keep the Mac awake while sessions work (default: true) / also keep the display awake,
 # i.e. no screen lock (default: false). Both are also toggles in the ⚙ menu.

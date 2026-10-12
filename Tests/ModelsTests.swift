@@ -350,6 +350,34 @@ func runModelsTests() {
         expectEq(hudFitColumns(panelWidth: 0, columnWidth: 268, gap: 12, sidePadding: 12), 1, "zero clamps to 1")
     }
 
+    test("hudScale auto: linear in the display's visible height, clamped to 80%…100%, 10% steps") {
+        expectEq(hudScale(visibleHeight: 1400, setting: .auto), 1.0, "27-inch class is 100%")
+        expectEq(hudScale(visibleHeight: 950, setting: .auto), 0.8, "built-in MBP class is 80%")
+        expectEq(hudScale(visibleHeight: 1175, setting: .auto), 0.9, "midpoint is 90%")
+        expectEq(hudScale(visibleHeight: 982, setting: .auto), 0.8, "MBP 14\" (982pt) snaps to 80%")
+        expectEq(hudScale(visibleHeight: 1345, setting: .auto), 1.0, "27-inch with the Dock shown still 100%")
+        expectEq(hudScale(visibleHeight: 1100, setting: .auto), 0.9, "MBP 16\" class snaps to 90%")
+        expectEq(hudScale(visibleHeight: 1050, setting: .auto), 0.8, "0.844 snaps down to 80%")
+        expectEq(hudScale(visibleHeight: 2000, setting: .auto), 1.0, "never enlarges past 100%")
+        expectEq(hudScale(visibleHeight: 600, setting: .auto), 0.8, "never shrinks below 80%")
+        expectEq(hudScale(visibleHeight: nil, setting: .auto), 1.0, "no display known → 100%")
+    }
+
+    test("hudScale manual: a fixed setting beats the display height") {
+        expectEq(hudScale(visibleHeight: 950, setting: .p100), 1.0)
+        expectEq(hudScale(visibleHeight: 1400, setting: .p80), 0.8)
+        expectEq(hudScale(visibleHeight: 1400, setting: .p90), 0.9)
+        expectEq(hudScale(visibleHeight: nil, setting: .p90), 0.9)
+        expectEq(hudScale(visibleHeight: 1400, setting: .p70), 0.7, "manual can go below auto's 80% floor")
+        expectEq(hudScale(visibleHeight: 2000, setting: .p60), 0.6)
+        expectEq(HUDScaleSetting(rawValue: "70"), .p70)
+        expectEq(HUDScaleSetting(rawValue: "60"), .p60)
+        expectEq(HUDScaleSetting.allCases.map(\.rawValue), ["auto", "100", "90", "80", "70", "60"], "menu order")
+        expectEq(HUDScaleSetting(rawValue: "80"), .p80, "defaults raw values are the percentages")
+        expectEq(HUDScaleSetting(rawValue: "auto"), .auto)
+        expectNil(HUDScaleSetting(rawValue: "50"), "unknown raw value")
+    }
+
     test("shortSessionId: the first UUID segment is the agent-view / `claude stop` id") {
         expectEq(shortSessionId("99678571-c5b8-4452-97c0-b7db4aac822b"), "99678571")
         expectEq(shortSessionId("nodashes"), "nodashes", "no dash — the whole string")
