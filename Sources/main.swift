@@ -26,6 +26,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NST
     // HUD サイズモード: auto=内容追従（従来）/ 小・中・大=固定サイズ（縦スクロールのみ）/
     // fullDisplay=載っているディスプレイの可視領域全面。⚙メニュー「HUDサイズ」で切り替え・永続化。
     var hudSizeMode: HUDSizeMode = HUDSizeMode(rawValue: defaults.string(forKey: "hudSizeMode") ?? "") ?? .auto
+    // 表示倍率: auto=ディスプレイ高から 80〜100% / 手動 100・90・80%。⚙メニュー「表示倍率」で永続化。
+    // 実体は scrollView.magnification（rebuild の冒頭で毎回求め直す — 別ディスプレイへ移ったら変わる）。
+    var hudScaleSetting: HUDScaleSetting = HUDScaleSetting(rawValue: defaults.string(forKey: "hudScale") ?? "") ?? .auto
+    // documentView の幅＝clip view の幅÷倍率。widthAnchor は clip の frame 幅（物理）を指すので
+    // 1:1 で張ると doc が倍率ぶん狭くなり、はみ出した右側のヒットテストが全部死ぬ（地雷リスト）。
+    // multiplier は不変なので倍率が変わるたびに張り直す。
+    var docWidthConstraint: NSLayoutConstraint!
+    // rebuild 冒頭で決めた倍率と基準ディスプレイ。寸法計算はすべてこれを読む（magnification の getter は
+    // frame/bounds 比から導出されるので、計算値と bit 一致する保証がない — 比較・除算に使わない）。
+    var appliedScale: CGFloat = 1
+    var layoutScreen: NSScreen?
+    // ディスプレイ移動の rebuild を、窓ドラッグ中・ポップオーバー中は保留して後で1回だけ行う。
+    var screenRebuildPending = false
     var timer: Timer?                  // 30s fallback refresh (FSEvents drives the fast path)
     var gcTimer: Timer?               // 5-min status-file GC (dead-pid cleanup)
     var fsStream: FSEventStreamRef?   // watches the status dir + transcripts

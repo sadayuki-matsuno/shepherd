@@ -214,6 +214,14 @@ extension AppDelegate {
         rebuild(rows: lastRows)
     }
 
+    @objc func setHudScale(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let setting = HUDScaleSetting(rawValue: raw), setting != hudScaleSetting else { return }
+        hudScaleSetting = setting
+        defaults.set(setting.rawValue, forKey: "hudScale")
+        rebuild(rows: lastRows)
+    }
+
     @objc func toggleUsageDashboard() {
         showUsageDashboard.toggle()
         defaults.set(showUsageDashboard, forKey: "showUsageDashboard")
@@ -261,6 +269,24 @@ extension AppDelegate {
         }
         sizeItem.submenu = sizeMenu
         menu.addItem(sizeItem)
+
+        // 表示倍率: 盤面全体を一律に縮める。自動はディスプレイの高さから（27インチ級 100%〜内蔵 MBP 80%）。
+        let scaleItem = NSMenuItem(title: L("表示倍率", "Display scale"), action: nil, keyEquivalent: "")
+        let scaleMenu = NSMenu()
+        let autoScale = hudScale(visibleHeight: layoutScreen?.visibleFrame.height, setting: .auto)
+        let autoPercent = Int((autoScale * 100).rounded())
+        for setting in HUDScaleSetting.allCases {
+            let name = setting == .auto
+                ? L("自動（ディスプレイに合わせる・このディスプレイでは \(autoPercent)%）", "Auto (fit the display — \(autoPercent)% here)")
+                : "\(setting.rawValue)%"
+            let choice = NSMenuItem(title: name, action: #selector(setHudScale(_:)), keyEquivalent: "")
+            choice.target = self
+            choice.representedObject = setting.rawValue
+            choice.state = hudScaleSetting == setting ? .on : .off
+            scaleMenu.addItem(choice)
+        }
+        scaleItem.submenu = scaleMenu
+        menu.addItem(scaleItem)
         menu.addItem(.separator())
         // Only offer the toggle when a deck is actually attached (or already in use).
         let present = deck != nil || StreamDeck.isPresent()

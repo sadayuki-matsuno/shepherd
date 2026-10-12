@@ -106,17 +106,20 @@ extension AppDelegate {
         scrollView.autohidesScrollers = true
         scrollView.scrollerStyle = .overlay   // legacy scrollers would eat width off the fixed board
         scrollView.verticalScrollElasticity = .none
+        // 表示倍率は magnification で掛ける（rebuild が設定）。ピンチで変わらないよう gesture は切る。
+        scrollView.allowsMagnification = false
         scrollView.documentView = doc
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(scrollView)
         // Fixed width in row mode; deactivated in column mode so the stack grows to fit columns.
         stackWidthConstraint = stack.widthAnchor.constraint(equalToConstant: contentWidth - 24)
+        docWidthConstraint = doc.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor)
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: container.topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            doc.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+            docWidthConstraint,
             stack.topAnchor.constraint(equalTo: doc.topAnchor, constant: 12),
             stack.leadingAnchor.constraint(equalTo: doc.leadingAnchor, constant: 12),
             doc.bottomAnchor.constraint(equalTo: stack.bottomAnchor, constant: 12),
@@ -129,6 +132,17 @@ extension AppDelegate {
         restorePlacement(size: rect.size)
         NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: panel, queue: .main) {
             [weak self] _ in self?.savePlacement()
+        }
+        // 表示倍率は載っているディスプレイで決まる: 別ディスプレイへ移った・解像度/配置が変わったら
+        // 組み直して倍率を取り直す（rebuild の冒頭で求める）。
+        let screenChanges: [(Notification.Name, Any?)] = [
+            (NSWindow.didChangeScreenNotification, panel),
+            (NSApplication.didChangeScreenParametersNotification, nil),
+        ]
+        for (name, object) in screenChanges {
+            NotificationCenter.default.addObserver(forName: name, object: object, queue: .main) { [weak self] _ in
+                self?.rebuildForScreenChange()
+            }
         }
 
         rebuild(rows: nil)
@@ -274,6 +288,23 @@ extension AppDelegate {
     // hold is TIME-based (2s past the last keystroke) rather than currentEditor(): a field that
     // keeps the field editor while the user works elsewhere would suppress every board update
     // indefinitely. One predicate because four hand-copied versions had already drifted apart.
+    // ディスプレイ移動・構成変更の rebuild。窓ドラッグの最中（画面を跨いだ瞬間に通知が来る）に
+    // リサイズするとカーソル下で窓が縮んで/fullDisplay なら飛んでドラッグと喧嘩するので、マウスが
+    // 離れるまで待つ。ポップオーバー中も同様に保留する（捨てると盤面が凍っていれば最大30秒、
+    // 旧ディスプレイの倍率・寸法のまま残る）。保留は1本だけ。
+    func rebuildForScreenChange() {
+        if screenRebuildPending { return }
+        guard NSEvent.pressedMouseButtons == 0, canRebuildNow() else {
+            screenRebuildPending = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                self?.screenRebuildPending = false
+                self?.rebuildForScreenChange()
+            }
+            return
+        }
+        rebuild(rows: lastRows)
+    }
+
     func canRebuildNow() -> Bool {
         replyPopover == nil && repoPickerPopover == nil && dropPopover == nil && helpPopover == nil
             && Date().timeIntervalSince(lastArtifactTypeAt) > 2.0
