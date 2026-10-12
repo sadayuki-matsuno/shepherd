@@ -354,13 +354,15 @@ extension AppDelegate {
         let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyyMMdd-HHmmss-SSS"
         let path = (dir as NSString).appendingPathComponent("\(f.string(from: Date())).png")
         panel.orderOut(nil)   // keep the HUD out of the screenshot
+        regionCaptureActive = true   // メニューバーアイコンのホバー/クリックで HUD を写り込ませない
         DispatchQueue.global(qos: .userInitiated).async {
             // Interactive capture: the user may take a while to drag the region — exempt from
             // the default 10s subprocess timeout.
             _ = runCommand(["/usr/sbin/screencapture", "-i", path], timeout: 600)
             let ok = FileManager.default.fileExists(atPath: path)
             DispatchQueue.main.async {
-                self.panel.orderFrontRegardless()
+                self.regionCaptureActive = false
+                self.showHUD()   // 撮影中は canRebuildNow() が組み直しを止めていたので最新にしてから戻す
                 completion(ok ? path : nil)
             }
         }

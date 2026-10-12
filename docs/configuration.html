@@ -153,6 +153,38 @@
       </table>
     </div>
 
+    <h2 lang="en">Minimize button</h2>
+    <h2 lang="ja">最小化ボタン</h2>
+    <div class="tbl-scroll" lang="en">
+      <table>
+        <tr><th>key</th><th>default</th><th>what it does</th></tr>
+        <tr><td>minimizeAction</td><td>menuBar</td><td>What the HUD's minimize button does. <code>menuBar</code> hides the HUD; the always-present menu-bar icon brings it back (its badge counts sessions that need input plus routines waiting for approval; hovering it while the HUD is hidden shows the strip's contents). <code>strip</code> shrinks the HUD to the summary strip instead. Shepherd always starts with the HUD shown. Toggle: ⚙ → <strong>Minimize button</strong>.</td></tr>
+      </table>
+    </div>
+    <div class="tbl-scroll" lang="ja">
+      <table>
+        <tr><th>キー</th><th>デフォルト</th><th>説明</th></tr>
+        <tr><td>minimizeAction</td><td>menuBar</td><td>HUD の最小化ボタンの動作。<code>menuBar</code> は HUD を隠し、常駐のメニューバーアイコンで戻します（アイコンのバッジは応答待ちのセッションと承認待ちの routine の合計。HUD を隠しているときはホバーでストリップと同じ中身を表示）。<code>strip</code> は HUD をサマリのストリップに縮めます。起動時は常に HUD を表示します。切替: ⚙ → <strong>最小化ボタンの動作</strong>。</td></tr>
+      </table>
+    </div>
+
+    <h2 lang="en">Sleep prevention</h2>
+    <h2 lang="ja">スリープ防止</h2>
+    <div class="tbl-scroll" lang="en">
+      <table>
+        <tr><th>key</th><th>default</th><th>what it does</th></tr>
+        <tr><td>preventSleepWhileWorking</td><td>true</td><td>While any session is working (or a live background worker may be mid-turn), keep the Mac from idle-sleeping (an IOKit <code>PreventUserIdleSystemSleep</code> assertion, visible in <code>pmset -g assertions</code> as "Shepherd: N sessions working"). Released as soon as nothing works — blocked and idle sessions don't hold it. A background worker whose state can't be read only counts for 2 hours after its last activity, so a parked worker can't hold the Mac up all night. Toggle: ⚙ → <strong>Prevent sleep while sessions work</strong>.</td></tr>
+        <tr><td>preventDisplaySleepWhileWorking</td><td>false</td><td>Independently, also keep the display awake under the same condition (<code>PreventUserIdleDisplaySleep</code>), which holds off the idle-triggered screen lock (a manual lock, hot corner or screen-saver timer still locks). An awake display also keeps the system awake, so this works even with the first toggle off. Toggle: ⚙ → <strong>Prevent screen lock while sessions work</strong>.</td></tr>
+      </table>
+    </div>
+    <div class="tbl-scroll" lang="ja">
+      <table>
+        <tr><th>キー</th><th>デフォルト</th><th>説明</th></tr>
+        <tr><td>preventSleepWhileWorking</td><td>true</td><td>作業中のセッション（またはターン実行中かもしれない生きた background worker）がある間、Mac のアイドルスリープを防ぎます（IOKit の <code>PreventUserIdleSystemSleep</code> アサーション。<code>pmset -g assertions</code> に「Shepherd: N sessions working」として見えます）。作業中が無くなれば即解放 — 応答待ち・待機中のセッションは保持しません。状態が読めない background worker は、最後の活動から2時間までしか数えません（駐機した worker が一晩中スリープを止めないように）。切替: ⚙ → <strong>稼働中はスリープさせない</strong>。</td></tr>
+        <tr><td>preventDisplaySleepWhileWorking</td><td>false</td><td>上とは独立に、同じ条件でディスプレイのスリープも防ぎ（<code>PreventUserIdleDisplaySleep</code>）、それに伴うアイドル時の画面ロックを防ぎます（手動ロック・ホットコーナー・スクリーンセーバーのタイマーによるロックは防げません）。ディスプレイが起きている間はシステムも眠らないので、1つ目のトグルが OFF でも効きます。切替: ⚙ → <strong>稼働中は画面ロックも防ぐ</strong>。</td></tr>
+      </table>
+    </div>
+
     <h2>Stream Deck</h2>
     <div class="tbl-scroll" lang="en">
       <table>
