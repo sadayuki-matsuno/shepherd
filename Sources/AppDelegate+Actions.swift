@@ -360,7 +360,7 @@ extension AppDelegate {
             _ = runCommand(["/usr/sbin/screencapture", "-i", path], timeout: 600)
             let ok = FileManager.default.fileExists(atPath: path)
             DispatchQueue.main.async {
-                self.panel.orderFrontRegardless()
+                self.showHUD()   // 撮影中は canRebuildNow() が組み直しを止めていたので最新にしてから戻す
                 completion(ok ? path : nil)
             }
         }

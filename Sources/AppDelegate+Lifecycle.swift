@@ -133,6 +133,8 @@ extension AppDelegate {
 
         rebuild(rows: nil)
         panel.orderFrontRegardless()
+        // メニューバーアイコンは常駐（DUMP / PROBE は上で exit 済みなので作られない）。
+        setupStatusItem()
 
         if defaults.bool(forKey: "deckEnabled") { enableDeck() }
 
@@ -274,8 +276,9 @@ extension AppDelegate {
     // hold is TIME-based (2s past the last keystroke) rather than currentEditor(): a field that
     // keeps the field editor while the user works elsewhere would suppress every board update
     // indefinitely. One predicate because four hand-copied versions had already drifted apart.
+    // メニューバーに隠している間も組み直さない（showHUD が戻す瞬間に lastRows で rebuild する）。
     func canRebuildNow() -> Bool {
-        replyPopover == nil && repoPickerPopover == nil && dropPopover == nil && helpPopover == nil
+        panel.isVisible && replyPopover == nil && repoPickerPopover == nil && dropPopover == nil && helpPopover == nil
             && Date().timeIntervalSince(lastArtifactTypeAt) > 2.0
             && Date().timeIntervalSince(lastDragAt) > 1.0
     }
@@ -295,6 +298,8 @@ extension AppDelegate {
             DispatchQueue.main.async {
                 self.lastRows = rows
                 self.updateReplyWaiting(rows: rows)
+                self.updateSleepAssertions(rows: rows)
+                self.updateStatusItem()   // rebuild が保留されてもメニューバーの数字は止めない
                 if self.canRebuildNow() { self.rebuild(rows: rows) }
                 if self.deck != nil { self.renderDeck() }
                 // The fetch may have discovered a config dir we aren't watching yet (a session
@@ -377,6 +382,7 @@ extension AppDelegate {
                 } else {
                     self.usageError = L("トークンが読めない", "no oauth token")
                 }
+                self.updateStatusItem()   // ホバーパネルのゲージ・チップも追従させる
                 if self.canRebuildNow() { self.rebuild(rows: self.lastRows) }
             }
         }
@@ -414,7 +420,7 @@ extension AppDelegate {
         if !showUsageDashboard { showUsageDashboard = true; defaults.set(true, forKey: "showUsageDashboard") }
         if minimized { minimized = false; defaults.set(false, forKey: "minimized") }
         usageFetchedAt = .distantPast
-        rebuild(rows: lastRows)
+        showHUD()   // メニューバーのホバーパネルから来たときは、隠れている HUD も戻す
         maybeRefreshUsage()
     }
 

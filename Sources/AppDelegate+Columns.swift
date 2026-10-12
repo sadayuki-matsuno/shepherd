@@ -987,6 +987,7 @@ extension AppDelegate {
         // ran, and any main-thread stall in that window (a subprocess in claudeAccount, say) put
         // a blank HUD on screen for its duration (2026-07-14, caught by frame capture).
         let filtered = rows.map(applyFilter)
+        updateStatusItem()   // 24h フィルタの切替などでもバッジの数は変わる
         // Top-to-bottom: brand bar (logo + account + controls), then the plan-usage gauges, then
         // the two collapsible sections (experimental 2026-07-17): セッション (its bar, then the
         // status row + columns when open) and ARTIFACTS (its bar, then search + inline list).

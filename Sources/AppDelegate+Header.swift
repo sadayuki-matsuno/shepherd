@@ -5,7 +5,11 @@ extension AppDelegate {
     // plan-usage dashboard between them: the BRAND BAR (logo · account … window controls) sits at
     // the very top, and the STATUS ROW (24h filter + summary pills) sits just above the board, under
     // the usage gauges — where the filter belongs. `status` is nil when minimized.
-    func headerView(rows: [AgentRow]?) -> (brand: NSView, status: NSView?) {
+    // `asStrip` は最小化ストリップの中身（フィルタ・＋・アカウント無し、承認待ちチップあり、狭幅）
+    // を強制する — メニューバーアイコンのホバーパネル（AppDelegate+MenuBar）が HUD の状態と
+    // 無関係にストリップと同じ行を組むため。
+    func headerView(rows: [AgentRow]?, asStrip: Bool = false) -> (brand: NSView, status: NSView?) {
+        let strip = minimized || asStrip
         let topBar = NSStackView()
         topBar.orientation = .horizontal
         topBar.spacing = 6
@@ -26,7 +30,7 @@ extension AppDelegate {
         markBtn.toolTip = L("設定メニュー（ドラッグで移動）", "settings menu (drag to move)")
         markBtn.setContentCompressionResistancePriority(.required, for: .horizontal)
         topBar.addArrangedSubview(markBtn)
-        if !minimized {
+        if !strip {
             let word = makeLabel("Shepherd", size: 12.5, weight: .heavy, color: Cat.subtext)
             word.setContentCompressionResistancePriority(.required, for: .horizontal)
             topBar.addArrangedSubview(word)
@@ -34,7 +38,7 @@ extension AppDelegate {
         // The logged-in Claude account, so it's obvious whose usage/limits the sessions draw on.
         // Its local part reads at a glance; the plan and full address are in the tooltip. Clicking
         // it opens the usage panel (same as the quota chip). Skipped when minimized or logged out.
-        if !minimized, let acct = claudeAccount() {
+        if !strip, let acct = claudeAccount() {
             let planTip = acct.plan.map { " · \($0.uppercased())" } ?? ""
             let chip = badge(acct.email, symbol: "person.crop.circle", fg: Cat.overlay,
                              bg: Cat.overlay.withAlphaComponent(0.14),
@@ -67,7 +71,7 @@ extension AppDelegate {
 
         // 24h filter toggle (B5). Click flips between 24h-recency and all. Minimized shows no
         // board, so the filter would be a dead control there — the summary pills stand alone.
-        if !minimized {
+        if !strip {
             let on = timeFilter == .last24h
             let fchip = badge(on ? L("● 24時間以内 ▾", "● 24h ▾") : L("すべて表示 ▾", "all ▾"),
                               fg: on ? Cat.green : Cat.overlay,
@@ -101,7 +105,7 @@ extension AppDelegate {
         // stopped at a permission prompt would go completely dark — the one state the strip exists
         // to surface. Mirror it next to the local needs-input count, at the same rank. (In the
         // full layout the section's own bar carries this, so it isn't duplicated here.)
-        if minimized {
+        if strip {
             let waiting = routinesNeedingAction.count
             if waiting > 0 {
                 header.addArrangedSubview(badge(routineApprovalLabel(waiting),
@@ -159,15 +163,19 @@ extension AppDelegate {
             b.toolTip = tip
             return b
         }
-        let mini = toolButton(minimized ? "rectangle.expand.vertical" : "rectangle.compress.vertical",
-                              action: #selector(toggleMinimized),
-                              tip: minimized ? L("元に戻す", "expand")
-                                             : L("最小化（ダッシュボードとサマリのみ）", "minimize (dashboard + summary only)"))
+        // 最小化ボタンの動作は ⚙メニューで選ぶ（minimizeAction）: 既定はメニューバーに隠れる。
+        let hides = minimizeButtonHidesHUD(minimized: minimized, action: minimizeAction)
+        let mini = toolButton(hides ? "menubar.arrow.up.rectangle"
+                                    : minimized ? "rectangle.expand.vertical" : "rectangle.compress.vertical",
+                              action: #selector(minimizeButtonPressed),
+                              tip: hides ? L("メニューバーに隠す（アイコンのクリックで戻す）", "hide in the menu bar (click its icon to bring it back)")
+                                         : minimized ? L("元に戻す", "expand")
+                                                     : L("最小化（ダッシュボードとサマリのみ）", "minimize (dashboard + summary only)"))
         topBar.addArrangedSubview(mini)
         // "+" makes a NEW session (a new card), so it lives on the status row at the top-right of the
         // board, next to the cards it creates — not up on the brand bar (2026-07-11). The status row
         // is hidden when minimized, which is fine: there's no board to add a card to then.
-        if ghqBin != nil, !minimized {
+        if ghqBin != nil, !strip {
             let plus = toolButton("plus", action: #selector(showNewSessionMenu(_:)),
                                   tip: L("新しいセッションを開始", "start a new session"))
             header.addArrangedSubview(plus)
@@ -199,7 +207,7 @@ extension AppDelegate {
         // contentWidth. The narrow width remains only for the minimized strip and the empty state.
         // Minimized keeps the status row too (2026-07-17): the blocked/working summary is what lets
         // the HUD stay useful as a strip — only the filter chip and ＋ are dropped above.
-        let wide = !minimized && !(rows?.isEmpty ?? true)
+        let wide = !strip && !(rows?.isEmpty ?? true)
         let width = wide ? boardSpanWidth : contentWidth - 24
         topBar.widthAnchor.constraint(equalToConstant: width).isActive = true
         header.widthAnchor.constraint(equalToConstant: width).isActive = true
@@ -242,6 +250,15 @@ extension AppDelegate {
         usageItem.state = showUsageDashboard ? .on : .off
         menu.addItem(usageItem)
 
+        let sleepItem = NSMenuItem(title: L("稼働中はスリープさせない", "Prevent sleep while sessions work"), action: #selector(togglePreventSleep), keyEquivalent: "")
+        sleepItem.target = self
+        sleepItem.state = preventSleepWhileWorking ? .on : .off
+        menu.addItem(sleepItem)
+        let displayItem = NSMenuItem(title: L("稼働中は画面ロックも防ぐ", "Prevent screen lock while sessions work"), action: #selector(togglePreventDisplaySleep), keyEquivalent: "")
+        displayItem.target = self
+        displayItem.state = preventDisplaySleepWhileWorking ? .on : .off
+        menu.addItem(displayItem)
+
         // HUD サイズ (2026-07-08): 自動（従来の内容追従）/ 固定3種（縦スクロールのみ）/ フルディスプレイ。
         let sizeItem = NSMenuItem(title: L("HUD サイズ", "HUD size"), action: nil, keyEquivalent: "")
         let sizeMenu = NSMenu()
@@ -261,6 +278,18 @@ extension AppDelegate {
         }
         sizeItem.submenu = sizeMenu
         menu.addItem(sizeItem)
+        let minItem = NSMenuItem(title: L("最小化ボタンの動作", "Minimize button"), action: nil, keyEquivalent: "")
+        let minMenu = NSMenu()
+        for (action, name) in [(MinimizeAction.menuBar, L("メニューバーに隠れる", "Hide in the menu bar")),
+                               (.strip, L("ストリップに縮む", "Shrink to a strip"))] {
+            let choice = NSMenuItem(title: name, action: #selector(setMinimizeAction(_:)), keyEquivalent: "")
+            choice.target = self
+            choice.representedObject = action.rawValue
+            choice.state = minimizeAction == action ? .on : .off
+            minMenu.addItem(choice)
+        }
+        minItem.submenu = minMenu
+        menu.addItem(minItem)
         menu.addItem(.separator())
         // Only offer the toggle when a deck is actually attached (or already in use).
         let present = deck != nil || StreamDeck.isPresent()

@@ -42,7 +42,7 @@ extension AppDelegate {
             routinesBarCollapsed = false
             defaults.set(false, forKey: "routinesBarCollapsed")
         }
-        rebuild(rows: lastRows)
+        showHUD()   // メニューバーのホバーパネルから来たときは、隠れている HUD も戻す
         maybeRefreshRoutines(force: true)
     }
 
@@ -69,6 +69,7 @@ extension AppDelegate {
                 self.routinesFetchedAt = Date()
                 self.routinesError = error
                 if let list = fetched { self.routines = list }   // a failed fetch keeps the old list
+                self.updateStatusItem()
                 if self.routinesRefreshPending {
                     self.routinesRefreshPending = false
                     self.maybeRefreshRoutines(force: true)

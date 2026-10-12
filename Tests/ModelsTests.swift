@@ -7,7 +7,7 @@ func makeRow(sessionId: String = "", status: String = "idle",
              statusSince: Date = Date.distantPast, parentSessionId: String? = nil,
              startedAt: Date? = nil, forkKey: String? = nil, isFork: Bool = false,
              isBackground: Bool = false, pid: Int32? = nil, isWorktree: Bool = false,
-             configDir: String? = nil) -> AgentRow {
+             configDir: String? = nil, updatedAt: Date? = nil) -> AgentRow {
     AgentRow(sessionId: sessionId, model: nil, contextPct: nil,
              status: status, label: label, cwd: cwd, dirName: "", dirPath: "",
              branch: nil, changedFiles: changedFiles, issueNo: nil, prNo: nil, prUrl: nil, ciState: nil,
@@ -15,7 +15,7 @@ func makeRow(sessionId: String = "", status: String = "idle",
              statusSince: statusSince, backend: backend, zellijSession: nil,
              zellijPaneId: nil, stale: false,
              parentSessionId: parentSessionId, subagents: [], zellijSendable: false,
-             updatedAt: nil, lastMessage: nil, startedAt: startedAt, forkKey: forkKey, isFork: isFork,
+             updatedAt: updatedAt, lastMessage: nil, startedAt: startedAt, forkKey: forkKey, isFork: isFork,
              isBackground: isBackground, pid: pid, configDir: configDir)
 }
 
@@ -1038,6 +1038,92 @@ func runModelsTests() {
                   "no pid = a finished record (archive lane) — nothing is parked")
         expectNil(parkedChip(makeRow(sessionId: "s-5", status: "idle", statusSince: now, pid: 123), now: now),
                   "a plain interactive session is not a daemon worker")
+    }
+
+    test("keepAwakeCount: working rows and live background workers hold the Mac awake") {
+        expectEq(keepAwakeCount([]), 0, "an empty board needs no assertion")
+        expectEq(keepAwakeCount([makeRow(sessionId: "a", status: "working", pid: 1)]), 1,
+                 "a working interactive session counts")
+        expectEq(keepAwakeCount([makeRow(sessionId: "b", status: "blocked", pid: 1),
+                                 makeRow(sessionId: "c", status: "idle", pid: 2),
+                                 makeRow(sessionId: "d", status: "error", pid: 3)]), 0,
+                 "blocked / idle / error are waiting on a human — no reason to keep the Mac up")
+        expectEq(keepAwakeCount([makeRow(sessionId: "e", status: "unknown", statusSince: Date(), isBackground: true, pid: 4)]), 1,
+                 "a live bg worker the daemon abstained on may be mid-turn — counted")
+        expectEq(keepAwakeCount([makeRow(sessionId: "f", status: "unknown", pid: 5)]), 0,
+                 "an unknown interactive session is not counted (only bg workers get the benefit of the doubt)")
+        expectEq(keepAwakeCount([makeRow(sessionId: "g", status: "unknown", isBackground: true)]), 0,
+                 "no pid = a finished bg record — nothing is running")
+        expectEq(keepAwakeCount([makeRow(sessionId: "h", status: "idle", isBackground: true, pid: 6),
+                                 makeRow(sessionId: "i", status: "blocked", isBackground: true, pid: 7)]), 0,
+                 "a parked or blocked bg worker is not working")
+        expectEq(keepAwakeCount([makeRow(sessionId: "l", status: "quiesced", isBackground: true, pid: 9)]), 0,
+                 "an unrecognised daemon word fails toward letting the Mac sleep")
+        var teammate = makeRow(sessionId: "j", status: "working", parentSessionId: "k")
+        teammate.isSubagent = true
+        expectEq(keepAwakeCount([makeRow(sessionId: "k", status: "idle", pid: 8), teammate]), 1,
+                 "a working teammate under an idle lead still counts — the lead is waiting on it")
+    }
+
+    test("keepAwakeCount: an unknown bg worker stops counting 2h after its last activity") {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        func worker(since: Date, updated: Date?) -> AgentRow {
+            makeRow(sessionId: "w", status: "unknown", statusSince: since, isBackground: true, pid: 4, updatedAt: updated)
+        }
+        let limit = keepAwakeUnknownWorkerLimit
+        expectEq(limit, 2 * 3600, "the cap is two hours")
+        expectEq(keepAwakeCount([worker(since: now.addingTimeInterval(-limit + 1), updated: nil)], now: now), 1,
+                 "just under 2h since the last activity — still counted")
+        expectEq(keepAwakeCount([worker(since: now.addingTimeInterval(-limit), updated: nil)], now: now), 0,
+                 "exactly 2h — no longer counted")
+        expectEq(keepAwakeCount([worker(since: now.addingTimeInterval(-limit - 1), updated: nil)], now: now), 0,
+                 "past 2h — a parked worker the daemon abstains on must not hold the Mac up all night")
+        expectEq(keepAwakeCount([worker(since: now.addingTimeInterval(-3 * limit),
+                                        updated: now.addingTimeInterval(-60))], now: now), 1,
+                 "the newest of the row's timestamps wins — a fresh updatedAt keeps an old status counted")
+        expectEq(keepAwakeCount([worker(since: now.addingTimeInterval(-60),
+                                        updated: now.addingTimeInterval(-3 * limit))], now: now), 1,
+                 "...and a fresh statusSince keeps a stale updatedAt counted")
+        expectEq(keepAwakeCount([makeRow(sessionId: "x", status: "working", statusSince: now.addingTimeInterval(-10 * limit),
+                                         isBackground: true, pid: 5)], now: now), 1,
+                 "working rows have no cap — a long turn keeps the Mac up")
+    }
+
+    test("attentionCount: blocked sessions plus routines waiting for approval") {
+        func routine(_ live: String?) -> Routine {
+            Routine(id: "trig_x", name: "x", enabled: true, cronExpression: nil, nextRunAt: nil,
+                    lastFiredAt: nil, lastRun: nil, liveState: live)
+        }
+        expectEq(attentionCount(rows: [], routines: []), 0, "nothing on the board — the icon stays bare")
+        expectEq(attentionCount(rows: [makeRow(sessionId: "a", status: "blocked"),
+                                       makeRow(sessionId: "b", status: "working"),
+                                       makeRow(sessionId: "c", status: "idle"),
+                                       makeRow(sessionId: "d", status: "error")], routines: []), 1,
+                 "only blocked counts — the same rows the header's needs-input pill counts")
+        expectEq(attentionCount(rows: [], routines: [routine("requires_action"), routine("running"),
+                                                     routine("idle"), routine(nil)]), 1,
+                 "a routine counts only while stopped at a permission prompt")
+        expectEq(attentionCount(rows: [makeRow(sessionId: "a", status: "blocked"),
+                                       makeRow(sessionId: "b", status: "blocked")],
+                                routines: [routine("requires_action")]), 3,
+                 "local and cloud waits add up into one badge")
+    }
+
+    test("MinimizeAction: defaults to hiding in the menu bar") {
+        expectEq(MinimizeAction(rawValue: "menuBar"), .menuBar, "raw value round-trips")
+        expectEq(MinimizeAction(rawValue: "strip"), .strip, "raw value round-trips")
+        expectEq(MinimizeAction(rawValue: "") ?? .menuBar, .menuBar, "an unset key falls back to the menu bar")
+    }
+
+    test("minimizeButtonHidesHUD: hide only from the full board in menu-bar mode") {
+        expectEq(minimizeButtonHidesHUD(minimized: false, action: .menuBar), true,
+                 "menu-bar mode: the button hides the HUD")
+        expectEq(minimizeButtonHidesHUD(minimized: false, action: .strip), false,
+                 "strip mode: the button shrinks to the strip as before")
+        expectEq(minimizeButtonHidesHUD(minimized: true, action: .menuBar), false,
+                 "already a strip (left over from strip mode): the button must expand it, or the strip is a dead end")
+        expectEq(minimizeButtonHidesHUD(minimized: true, action: .strip), false,
+                 "strip mode, minimized: the button expands")
     }
 
     test("repoGroupKey: repo identity, then header, then the one shared other section") {
