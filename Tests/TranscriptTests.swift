@@ -810,4 +810,163 @@ func runTranscriptTests() {
         expectNil(blockedPromptFromTranscript(cwd: cwd, sessionId: "p2"),
                   "a question buried under a newer assistant turn is not pending — never show a stale question")
     }
+
+    // MARK: shell / monitor marks. Fixture shapes copied from real transcripts (2026-10-08/09):
+    // Monitor's tool_result carries toolUseResult {taskId,timeoutMs,persistent}; its end is a
+    // <task-notification> with <status> (mid-stream events have none); TaskStop's result carries
+    // task_id. A running Bash is a tool_use of the newest assistant message with no tool_result yet.
+    let bashUse = #"{"type":"assistant","timestamp":"2026-10-08T05:36:25.611Z","message":{"id":"msg_A","content":[{"type":"tool_use","id":"tu_bash","name":"Bash","input":{"command":"./test.sh"}}]}}"#
+    let bashResult = #"{"type":"user","timestamp":"2026-10-08T05:43:00.822Z","message":{"content":[{"tool_use_id":"tu_bash","type":"tool_result","content":"ok"}]}}"#
+    let monUse = #"{"type":"assistant","timestamp":"2026-10-08T05:44:40.000Z","message":{"id":"msg_B","content":[{"type":"tool_use","id":"tu_mon","name":"Monitor","input":{"description":"PR #1 CI checks","timeout_ms":1800000,"command":"while true; do x; done"}}]}}"#
+    let monResult = #"{"type":"user","timestamp":"2026-10-08T05:44:42.924Z","message":{"content":[{"tool_use_id":"tu_mon","type":"tool_result","content":"Monitor started (task bqkbst9pa, expires in 30m unless the source ends first)"}]},"toolUseResult":{"taskId":"bqkbst9pa","timeoutMs":1800000,"persistent":false}}"#
+    let monEvent = #"{"type":"user","timestamp":"2026-10-08T05:50:52.378Z","message":{"role":"user","content":"<task-notification>\n<task-id>bqkbst9pa</task-id>\n<summary>Monitor event: \"PR #1 CI checks\"</summary>\n<event>GO LINT: pass</event>\n</task-notification>"}}"#
+    let monEnd = #"{"type":"user","timestamp":"2026-10-08T05:53:55.866Z","message":{"role":"user","content":"<task-notification>\n<task-id>bqkbst9pa</task-id>\n<tool-use-id>tu_mon</tool-use-id>\n<status>completed</status>\n<summary>Monitor \"PR #1 CI checks\" stream ended</summary>\n</task-notification>"}}"#
+
+    test("foldTaskState: a Bash tool_use without its result is running; the result clears it") {
+        var st = TranscriptTaskState()
+        foldTaskState(&st, slice: bashUse, ownSidechain: false)
+        expectEq(st.pendingTools["tu_bash"], "Bash", "in-flight Bash")
+        foldTaskState(&st, slice: bashResult, ownSidechain: false)
+        expect(st.pendingTools.isEmpty, "result arrived → nothing in flight")
+    }
+
+    test("foldTaskState: a background Bash returns at once — never counted as in flight") {
+        var st = TranscriptTaskState()
+        let bg = #"{"type":"assistant","message":{"id":"msg_C","content":[{"type":"tool_use","id":"tu_bg","name":"Bash","input":{"command":"yarn dev","run_in_background":true}}]}}"#
+        foldTaskState(&st, slice: bg, ownSidechain: false)
+        expect(st.pendingTools.isEmpty, "run_in_background Bash skipped")
+    }
+
+    test("foldTaskState: a newer assistant message drops orphaned tool_uses of older ones") {
+        var st = TranscriptTaskState()
+        let later = #"{"type":"assistant","message":{"id":"msg_Z","content":[{"type":"text","text":"done"}]}}"#
+        foldTaskState(&st, slice: bashUse + "\n" + later, ownSidechain: false)
+        expect(st.pendingTools.isEmpty, "an interrupted Bash with no result must not stick")
+    }
+
+    test("foldTaskState: sidechain lines are skipped in a main transcript, read in a subagent's own") {
+        let side = bashUse.replacingOccurrences(of: #"{"type":"assistant","#, with: #"{"type":"assistant","isSidechain":true,"#)
+        var main = TranscriptTaskState()
+        foldTaskState(&main, slice: side, ownSidechain: false)
+        expect(main.pendingTools.isEmpty, "main chain ignores sidechain")
+        var own = TranscriptTaskState()
+        foldTaskState(&own, slice: side, ownSidechain: true)
+        expectEq(own.pendingTools["tu_bash"], "Bash", "subagent jsonl is all sidechain")
+    }
+
+    test("foldTaskState: Monitor lifecycle — start, mid-stream event keeps it, <status> ends it") {
+        var st = TranscriptTaskState()
+        foldTaskState(&st, slice: [monUse, monResult].joined(separator: "\n"), ownSidechain: false)
+        expectEq(st.monitors["bqkbst9pa"]?.description, "PR #1 CI checks", "started, described by the tool_use")
+        expectEq(st.monitors["bqkbst9pa"]?.timeoutMs, 1_800_000, "timeout from toolUseResult")
+        expectEq(st.monitors["bqkbst9pa"]?.persistent, false, "persistent from toolUseResult")
+        expect(st.pendingTools.isEmpty, "Monitor's own call returned immediately")
+        foldTaskState(&st, slice: monEvent, ownSidechain: false)
+        expect(st.monitors["bqkbst9pa"] != nil, "a status-less event is not an end")
+        foldTaskState(&st, slice: monEnd, ownSidechain: false)
+        expect(st.monitors.isEmpty, "<status>completed</status> ends it")
+    }
+
+    test("foldTaskState: TaskStop and queue-operation notifications also end a monitor") {
+        var st = TranscriptTaskState()
+        foldTaskState(&st, slice: [monUse, monResult].joined(separator: "\n"), ownSidechain: false)
+        let stopUse = #"{"type":"assistant","message":{"id":"msg_S","content":[{"type":"tool_use","id":"tu_stop","name":"TaskStop","input":{"task_id":"bqkbst9pa"}}]}}"#
+        let stopRes = #"{"type":"user","message":{"content":[{"tool_use_id":"tu_stop","type":"tool_result","content":"{\"message\":\"Successfully stopped task: bqkbst9pa\"}"}]},"toolUseResult":{"message":"Successfully stopped task: bqkbst9pa","task_id":"bqkbst9pa","task_type":"local_bash"}}"#
+        foldTaskState(&st, slice: [stopUse, stopRes].joined(separator: "\n"), ownSidechain: false)
+        expect(st.monitors.isEmpty, "TaskStop result ends it")
+
+        var q = TranscriptTaskState()
+        foldTaskState(&q, slice: [monUse, monResult].joined(separator: "\n"), ownSidechain: false)
+        let enqueue = #"{"type":"queue-operation","operation":"enqueue","content":"<task-notification> <task-id>bqkbst9pa</task-id> <status>killed</status> <summary>stopped</summary> </task-notification>"}"#
+        foldTaskState(&q, slice: enqueue, ownSidechain: false)
+        expect(q.monitors.isEmpty, "the queued notification counts too")
+    }
+
+    test("foldTaskState: a failed TaskStop does not end the monitor") {
+        var st = TranscriptTaskState()
+        foldTaskState(&st, slice: [monUse, monResult].joined(separator: "\n"), ownSidechain: false)
+        let stopUse = #"{"type":"assistant","message":{"id":"msg_S","content":[{"type":"tool_use","id":"tu_stop","name":"TaskStop","input":{"task_id":"bqkbst9pa"}}]}}"#
+        let stopErr = #"{"type":"user","message":{"content":[{"tool_use_id":"tu_stop","type":"tool_result","is_error":true,"content":"<tool_use_error>Task bqkbst9pa is not running</tool_use_error>"}]},"toolUseResult":"Error: Task bqkbst9pa is not running (status: failed)"}"#
+        foldTaskState(&st, slice: [stopUse, stopErr].joined(separator: "\n"), ownSidechain: false)
+        expect(st.monitors["bqkbst9pa"] != nil, "an errored stop is not evidence of an end")
+    }
+
+    test("sessionTaskMarks: gates and backstops") {
+        var st = TranscriptTaskState()
+        foldTaskState(&st, slice: [monUse, monResult, bashUse.replacingOccurrences(of: "msg_A", with: "msg_D")].joined(separator: "\n"), ownSidechain: false)
+        let started = parseUsageISODate("2026-10-08T05:44:42.924Z")!
+        let soon = started.addingTimeInterval(60)
+        let before = started.addingTimeInterval(-600)   // the current process started earlier
+        var m = sessionTaskMarks(st, status: "working", hasJob: false, processStartedAt: before, now: soon)
+        expect(m.shell, "working + Bash in flight → shell")
+        expectEq(m.monitors.map { $0.taskId }, ["bqkbst9pa"], "monitor live within its timeout")
+        m = sessionTaskMarks(st, status: "idle", hasJob: false, processStartedAt: before, now: soon)
+        expect(!m.shell, "not working → no shell (a killed turn's orphan never sticks)")
+        expectEq(m.monitors.count, 1, "an idle turn keeps its monitor (registry \"shell\")")
+        m = sessionTaskMarks(st, status: "working", hasJob: true, processStartedAt: before, now: soon)
+        expect(!m.shell, "daemon rows flush the transcript a turn late — no shell mark")
+        m = sessionTaskMarks(st, status: "working", hasJob: false, processStartedAt: before,
+                             now: started.addingTimeInterval(1801))
+        expect(m.monitors.isEmpty, "non-persistent monitor past start+timeoutMs has expired (no marker is written)")
+        var p = TranscriptTaskState()
+        foldTaskState(&p, slice: [monUse, monResult.replacingOccurrences(of: #""persistent":false"#, with: #""persistent":true"#)].joined(separator: "\n"), ownSidechain: false)
+        m = sessionTaskMarks(p, status: "working", hasJob: false, processStartedAt: nil,
+                             now: started.addingTimeInterval(86_400))
+        expectEq(m.monitors.count, 1, "persistent runs until TaskStop / session end")
+        m = sessionTaskMarks(p, status: "working", hasJob: false,
+                             processStartedAt: started.addingTimeInterval(3600), now: started.addingTimeInterval(7200))
+        expect(m.monitors.isEmpty, "a monitor older than the current process died with the previous one (resume / fork)")
+    }
+
+    test("transcriptTaskState: a registry idle sighting empties the cached monitors for good") {
+        let cwd = "/tmp/proj-taskstate-idle"
+        writeTranscript(cwd: cwd, sessionId: "i1", lines: [monUse, monResult])
+        expectEq(transcriptTaskState(cwd: cwd, sessionId: "i1", registryStatus: "busy").monitors.count, 1, "busy: live")
+        expect(transcriptTaskState(cwd: cwd, sessionId: "i1", registryStatus: "idle").monitors.isEmpty, "idle: none left")
+        expect(transcriptTaskState(cwd: cwd, sessionId: "i1", registryStatus: "busy").monitors.isEmpty,
+               "idle → busy does not revive a monitor the idle sighting proved dead")
+        expect(transcriptTaskState(cwd: cwd, sessionId: "i1", registryStatus: "shell").monitors.isEmpty, "nor does shell")
+    }
+
+    test("transcriptTaskState: a subagent key reads the agent's own (all-sidechain) jsonl") {
+        let cwd = "/tmp/proj-taskstate-sub"
+        let key = "lead1/subagents/agent-x1"
+        let side = { (s: String) in s.replacingOccurrences(of: #"{"type":"#, with: #"{"isSidechain":true,"type":"#) }
+        writeTranscript(cwd: cwd, sessionId: key, lines: [side(monUse), side(monResult)])
+        expectEq(Array(transcriptTaskState(cwd: cwd, sessionId: key).monitors.keys), ["bqkbst9pa"],
+                 "sidechain lines count in the agent's own file")
+    }
+
+    test("foldTaskState: the pre-parse substring gate drops nothing that matters") {
+        let noise = [
+            #"{"type":"permission-mode","permissionMode":"auto"}"#,
+            #"{"type":"ai-title","aiTitle":"x"}"#,
+            #"{"type":"user","message":{"role":"user","content":"hello"}}"#,
+            #"{"type":"system","subtype":"x","content":"y"}"#,
+        ]
+        let signal = [bashUse, bashResult, monUse, monResult, monEvent]
+        var plain = TranscriptTaskState(), noisy = TranscriptTaskState()
+        foldTaskState(&plain, slice: signal.joined(separator: "\n"), ownSidechain: false)
+        var mixed: [String] = []
+        for (i, s) in signal.enumerated() { mixed.append(noise[i % noise.count]); mixed.append(s) }
+        foldTaskState(&noisy, slice: mixed.joined(separator: "\n"), ownSidechain: false)
+        expectEq(noisy, plain, "same state with or without unrelated lines")
+        expectEq(plain.monitors.count, 1, "and the signal itself is folded")
+        expectEq(plain.lastMessageId, "msg_B", "message-id resets still see every assistant line")
+    }
+
+    test("transcriptTaskState: incremental read keeps a partial trailing line for the next pass") {
+        let cwd = "/tmp/proj-taskstate"
+        writeTranscript(cwd: cwd, sessionId: "t1", lines: [monUse, monResult])
+        expectEq(transcriptTaskState(cwd: cwd, sessionId: "t1").monitors.count, 1, "first pass")
+        let path = (transcriptDir(cwd: cwd, sessionId: "t1") as NSString).appendingPathComponent("t1.jsonl")
+        let fh = FileHandle(forWritingAtPath: path)!
+        fh.seekToEndOfFile()
+        let half = monEnd.prefix(40), rest = monEnd.dropFirst(40)
+        fh.write(String(half).data(using: .utf8)!)
+        expectEq(transcriptTaskState(cwd: cwd, sessionId: "t1").monitors.count, 1, "a half-written line is not consumed")
+        fh.write((String(rest) + "\n").data(using: .utf8)!)
+        try? fh.close()
+        expect(transcriptTaskState(cwd: cwd, sessionId: "t1").monitors.isEmpty, "completed line read on the next pass")
+    }
 }

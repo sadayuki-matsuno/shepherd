@@ -105,6 +105,34 @@ extension AppDelegate {
         hoverTipAnchor = nil
     }
 
+    // Wrap an element (card instrument / meta mark / dashboard gauge row) in a HoverView that shows
+    // `tip` as an anchored popover. Never the bottom hint line: it does render (verified 2026-08-23
+    // with a warped cursor) but sits at the far bottom-left of the board in 10.5pt overlay grey, an
+    // eyeline away from the element being hovered — "invisible in practice for per-element
+    // details", which is what hoverTipPopover was introduced for. hideHoverTip(from:) lets only the
+    // view currently showing the tip close it (landmine list: enter/exit ordering).
+    func withHoverTip(_ v: NSView, _ tip: String) -> NSView {
+        let box = HoverView()
+        v.translatesAutoresizingMaskIntoConstraints = false
+        box.translatesAutoresizingMaskIntoConstraints = false
+        box.addSubview(v)
+        NSLayoutConstraint.activate([
+            v.topAnchor.constraint(equalTo: box.topAnchor),
+            v.bottomAnchor.constraint(equalTo: box.bottomAnchor),
+            v.leadingAnchor.constraint(equalTo: box.leadingAnchor),
+            v.trailingAnchor.constraint(equalTo: box.trailingAnchor),
+        ])
+        box.onHover = { [weak self, weak box] entered in
+            guard let box = box else { return }
+            if entered {
+                self?.showHoverTip(makeLabel(tip, size: 11, color: Cat.text), from: box)
+            } else {
+                self?.hideHoverTip(from: box)
+            }
+        }
+        return box
+    }
+
     // Family peek popover (C7): hovering a collapsed family's summary previews its children.
     // `reports` are finished teammates' one-line completion reports (the `result` of their latest
     // idle_notification) — a finished teammate has no card of its own, so this is where it shows.
@@ -642,8 +670,9 @@ extension AppDelegate {
 
     // One usage gauge row: label · track with a filled portion · percent + reset countdown.
     // Colored by the API's severity, falling back to the used-percent (green→peach→red).
-    func usageGauge(_ w: UsageWindow) -> NSView {
-        let color: NSColor = {
+    func usageGauge(_ w: UsageWindow, color override: NSColor? = nil, text: String? = nil,
+                    symbol: String? = nil) -> NSView {
+        let color: NSColor = override ?? {
             switch w.severity {
             case "critical", "severe": return Cat.red
             case "warning": return Cat.peach
@@ -653,7 +682,8 @@ extension AppDelegate {
         let row = NSStackView()
         row.orientation = .horizontal; row.spacing = 6; row.alignment = .centerY
 
-        let name = makeLabel(w.label, size: 10.5, weight: .medium, color: Cat.subtext)
+        let name = symbol.map { symbolLabel($0, w.label, size: 10.5, weight: .medium, color: Cat.subtext) }
+            ?? makeLabel(w.label, size: 10.5, weight: .medium, color: Cat.subtext)
         name.setContentHuggingPriority(.required, for: .horizontal)
         name.widthAnchor.constraint(equalToConstant: 58).isActive = true
 
@@ -679,9 +709,13 @@ extension AppDelegate {
 
         let pctText = "\(Int(w.percent.rounded()))%"
         let resetText = w.resetsAt.map { "  " + shortReset($0) } ?? ""
-        let pct = makeLabel(pctText + resetText, size: 10.5, weight: .semibold, color: color)
+        let pct = makeLabel(text ?? (pctText + resetText), size: 10.5, weight: .semibold, color: color)
         pct.setContentHuggingPriority(.required, for: .horizontal)
         pct.setContentCompressionResistancePriority(.required, for: .horizontal)
+        // A shared minimum width, right-aligned, so every row's track ends at the same x — the
+        // disk row's "351 / 494 GB" is wider than "19% →2h" and would otherwise stop its track short.
+        pct.alignment = .right
+        pct.widthAnchor.constraint(greaterThanOrEqualToConstant: 78).isActive = true
 
         row.addArrangedSubview(name)
         row.addArrangedSubview(track)
@@ -827,6 +861,45 @@ extension AppDelegate {
 
         let stale = usageError != nil && !(lastUsage?.windows.isEmpty ?? true)
 
+        // Two sections (2026-10-10, user decision — the disk sat among the plan limits and read as
+        // one of them): "This Mac" (the startup disk) on top, a hairline, then "plan usage" with
+        // its own fetched-at stamp, ↻, stale dimming and the credit column. The disk row is local
+        // and never dimmed. Text is the amount, "used / total" (diskUsageText; % in the hover);
+        // the bar fills by used % in diskGaugeColor's quiet neutral / peach / red. In the
+        // minimized strip only from 80% (the strip keeps what needs attention) and WITHOUT the
+        // "This Mac" heading — the drive glyph + label name the row, and a heading would cost the
+        // strip a second line for one gauge; the hairline still parts it from the plan gauges.
+        var diskRow: NSView?
+        if let d = diskSpace, let used = diskUsedFraction(total: d.total, available: d.available),
+           !compact || used >= 0.80 {
+            let gb = { (b: Int64) in ByteCountFormatter.string(fromByteCount: b, countStyle: .file) }
+            let row = usageGauge(UsageWindow(key: "disk", label: L("ディスク", "disk"), percent: used * 100,
+                                             resetsAt: nil, severity: "normal"),
+                                 color: diskGaugeColor(used),
+                                 text: diskUsageText(used: d.total - d.available, total: d.total),
+                                 symbol: "internaldrive")
+            let pct = Int((used * 100).rounded())
+            diskRow = withHoverTip(row, L(
+                "起動ディスク: 使用 \(gb(d.total - d.available)) / 全 \(gb(d.total))（\(pct)%）・空き \(gb(d.available))",
+                "startup disk: \(gb(d.total - d.available)) used of \(gb(d.total)) (\(pct)%) · \(gb(d.available)) free"))
+        }
+        if let diskRow {
+            if !compact {
+                let macTitle = makeLabel(L("この Mac", "This Mac"), size: 10, weight: .bold, color: Cat.overlay)
+                box.addArrangedSubview(macTitle)
+                box.setCustomSpacing(4, after: macTitle)
+            }
+            box.addArrangedSubview(diskRow)
+            let rule = NSView()
+            rule.wantsLayer = true
+            rule.layer?.backgroundColor = Cat.surface1.withAlphaComponent(0.55).cgColor
+            rule.translatesAutoresizingMaskIntoConstraints = false
+            rule.heightAnchor.constraint(equalToConstant: 1).isActive = true
+            box.addArrangedSubview(rule)
+            rule.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
+            box.setCustomSpacing(7, after: diskRow)
+        }
+
         let head = NSStackView()
         head.orientation = .horizontal; head.spacing = 7; head.alignment = .centerY
         let title = makeLabel(L("プラン使用量", "plan usage"), size: 10, weight: .bold, color: Cat.overlay)
@@ -877,43 +950,53 @@ extension AppDelegate {
         box.addArrangedSubview(head)
         head.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
 
-        if let usage = lastUsage, !usage.windows.isEmpty {
-            let content = NSStackView()
-            content.orientation = .horizontal; content.spacing = 12; content.alignment = .top
-
-            let gauges = NSStackView()
-            gauges.orientation = .vertical; gauges.spacing = 5; gauges.alignment = .leading
+        let gauges = NSStackView()
+        gauges.orientation = .vertical; gauges.spacing = 5; gauges.alignment = .leading
+        let usage = lastUsage.flatMap { $0.windows.isEmpty ? nil : $0 }
+        if let usage {
             // Order: session, weekly, then any model-scoped windows.
             let order: (UsageWindow) -> Int = { $0.key == "session" ? 0 : $0.key == "weekly" ? 1 : 2 }
             for w in usage.windows.sorted(by: { order($0) < order($1) }) {
                 let row = usageGauge(w)
+                if stale { row.alphaValue = 0.55 }
                 gauges.addArrangedSubview(row)
                 row.widthAnchor.constraint(equalTo: gauges.widthAnchor).isActive = true
             }
-            content.addArrangedSubview(gauges)
-            if !compact {
-                let divider = NSView()
-                divider.wantsLayer = true
-                divider.layer?.backgroundColor = Cat.surface1.withAlphaComponent(0.55).cgColor
-                divider.translatesAutoresizingMaskIntoConstraints = false
-                divider.widthAnchor.constraint(equalToConstant: 1).isActive = true
-
-                let credit = creditColumn(usage.credit)
-                credit.setContentHuggingPriority(.required, for: .horizontal)
-
-                content.addArrangedSubview(divider)
-                content.addArrangedSubview(credit)
-                NSLayoutConstraint.activate([
-                    credit.widthAnchor.constraint(equalToConstant: min(190, innerWidth * 0.35)),
-                    divider.heightAnchor.constraint(equalTo: content.heightAnchor),
-                ])
-            }
-            if stale { content.alphaValue = 0.55 }
-            box.addArrangedSubview(content)
-            content.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
         } else {
             let msg = lastUsage?.error ?? usageError ?? L("読み込み中…", "loading…")
-            box.addArrangedSubview(makeLabel(msg, size: 10.5, color: Cat.overlay))
+            gauges.addArrangedSubview(makeLabel(msg, size: 10.5, color: Cat.overlay))
+        }
+        let content = NSStackView(views: [gauges])
+        content.orientation = .horizontal; content.spacing = 12; content.alignment = .top
+        if let usage, !compact {
+            let divider = NSView()
+            divider.wantsLayer = true
+            divider.layer?.backgroundColor = Cat.surface1.withAlphaComponent(0.55).cgColor
+            divider.translatesAutoresizingMaskIntoConstraints = false
+            divider.widthAnchor.constraint(equalToConstant: 1).isActive = true
+
+            let credit = creditColumn(usage.credit)
+            credit.setContentHuggingPriority(.required, for: .horizontal)
+            if stale { credit.alphaValue = 0.55 }
+
+            content.addArrangedSubview(divider)
+            content.addArrangedSubview(credit)
+            NSLayoutConstraint.activate([
+                credit.widthAnchor.constraint(equalToConstant: min(190, innerWidth * 0.35)),
+                divider.heightAnchor.constraint(equalTo: content.heightAnchor),
+            ])
+        }
+        box.addArrangedSubview(content)
+        content.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
+        // The disk row spans exactly the plan gauges' column, so every track ends at the same x
+        // whether or not the credit column is beside the plan gauges. Below required: in the
+        // 1-column preset that column is too narrow for "353 / 494 GB", and the amount must not
+        // truncate — the row then simply runs wider (its own section, so nothing sits beside it).
+        if let diskRow {
+            let align = diskRow.widthAnchor.constraint(equalTo: gauges.widthAnchor)
+            align.priority = .defaultHigh
+            align.isActive = true
+            diskRow.widthAnchor.constraint(lessThanOrEqualToConstant: innerWidth).isActive = true
         }
         box.widthAnchor.constraint(equalToConstant: width - 20).isActive = true
 

@@ -346,7 +346,8 @@ func symbolLabel(_ symbol: String, _ text: String, size: CGFloat, weight: NSFont
     let para = NSMutableParagraphStyle()
     para.lineBreakMode = .byTruncatingTail
     let s = NSMutableAttributedString(attachment: attachment)
-    s.append(NSAttributedString(string: " " + text,
+    // An icon-only label (empty text) gets no trailing separator space.
+    s.append(NSAttributedString(string: text.isEmpty ? "" : " " + text,
                                 attributes: [.font: font, .foregroundColor: color, .paragraphStyle: para]))
     label.attributedStringValue = s
     label.lineBreakMode = .byTruncatingTail

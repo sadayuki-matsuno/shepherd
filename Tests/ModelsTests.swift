@@ -79,6 +79,29 @@ func runModelsTests() {
         expectEq(Set(tints.map { $0.description }).count, tints.count, "every known mode's tint is distinct")
     }
 
+    // Startup-disk gauge: used = total − available-for-important-usage (what Finder calls
+    // "available", purgeable included). Colors reuse the gauge palette at 80 / 90.
+    test("diskUsedFraction / diskGaugeColor") {
+        expectEq(diskUsedFraction(total: 494_384_795_648, available: 151_216_709_632).map { Int(($0 * 1000).rounded()) },
+                 694, "the measured Mac: 69.4%")
+        expectNil(diskUsedFraction(total: 0, available: 0), "no capacity → nil")
+        expectEq(diskUsedFraction(total: 100, available: 150), 0, "available > total clamps to 0")
+        expectEq(diskUsedFraction(total: 100, available: -5), 1, "negative available clamps to 1")
+        expect(diskGaugeColor(0.79) == Cat.subtext, "<80% a quiet neutral, not the plan gauges' green")
+        expect(diskGaugeColor(0.80) == Cat.peach, "80% peach")
+        expect(diskGaugeColor(0.90) == Cat.red, "90% red")
+    }
+
+    // The gauge's text is "used / total" in decimal units (Finder's: 1 GB = 10^9 B), the unit
+    // picked by the total — GB as whole numbers, TB with one decimal.
+    test("diskUsageText") {
+        expectEq(diskUsageText(used: 412_000_000_000, total: 994_000_000_000), "412 / 994 GB")
+        expectEq(diskUsageText(used: 343_167_000_000, total: 494_384_795_648), "343 / 494 GB", "the measured Mac")
+        expectEq(diskUsageText(used: 1_200_000_000_000, total: 2_000_000_000_000), "1.2 / 2.0 TB", "TB once the total passes 1 TB")
+        expectEq(diskUsageText(used: 600_000_000_000, total: 1_000_000_000_000), "0.6 / 1.0 TB", "exactly 1 TB already reads in TB")
+        expectEq(diskUsageText(used: 499_600_000, total: 999_000_000_000), "0 / 999 GB", "rounds to whole GB")
+    }
+
     // effortColor (2026-10-01): a five-level heat scale, user decision — intentionally overlaps
     // context-warning yellow and working green rather than inventing new hues.
     test("effortColor") {
@@ -1291,6 +1314,30 @@ func runModelsTests() {
                                        description: "調査タスク", working: true)
         expectEq(subagentChildRow(parent: parent, rec: described, git: nil).label, "調査タスク",
                  "description beats the bare type")
+    }
+
+    test("subagentChildRow: monitors from the agent's own task state, floored at the parent's start") {
+        let t0 = Date(timeIntervalSince1970: 1_791_000_000)
+        var parent = makeRow(sessionId: "p-3", status: "working", cwd: "/repo/main", pid: 42)
+        parent.startedAt = t0
+        var tasks = TranscriptTaskState()
+        tasks.monitors["bnew"] = MonitorTask(taskId: "bnew", description: "ci", startedAt: t0.addingTimeInterval(60),
+                                             timeoutMs: nil, persistent: true)
+        tasks.monitors["bold"] = MonitorTask(taskId: "bold", description: "stale", startedAt: t0.addingTimeInterval(-60),
+                                             timeoutMs: nil, persistent: true)
+        tasks.pendingTools["tu1"] = "Bash"
+        let row = subagentChildRow(parent: parent, rec: SubagentRecord(agentId: "m1", type: "Explore", working: true),
+                                   git: nil, tasks: tasks, now: t0.addingTimeInterval(120))
+        expectEq(row.monitors.map { $0.taskId }, ["bnew"], "a monitor from before the parent process started is dead")
+        expect(!row.shellRunning, "a child's in-flight Bash is its title glyph, not a meta mark")
+    }
+
+    test("toolTitleSymbol: terminal only for exactly Bash") {
+        expectEq(toolTitleSymbol("⚙ Bash: ./test.sh"), "terminal")
+        expectEq(toolTitleSymbol("⚙ Bash"), "terminal", "no argument")
+        expectEq(toolTitleSymbol("⚙ BashOutput: b1"), "gearshape", "a Bash-prefixed other tool stays a gear")
+        expectEq(toolTitleSymbol("⚙ Grep: enqueueSend"), "gearshape")
+        expectNil(toolTitleSymbol("Bash: not a tool line"), "no ⚙ marker → not a tool line")
     }
 
     test("recentTeammateReports: finished teammates' reports, newest report first, within the window") {
