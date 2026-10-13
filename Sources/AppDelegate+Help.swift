@@ -135,7 +135,12 @@ extension AppDelegate {
             L("表示範囲の切替（24時間以内 ／ すべて表示）", "toggle the board range (last 24h / everything)"))
         row("", color: Cat.overlay,
             L("最小化 ／ 新規セッション作成（worktree + claude 起動）／ 設定メニュー", "minimize / start a new session (worktree + claude) / settings menu"),
-            symbols: ["rectangle.compress.vertical", "plus", "gearshape.fill"])
+            symbols: [minimizeButtonHidesHUD(minimized: minimized, action: minimizeAction) ? "menubar.arrow.up.rectangle"
+                        : minimized ? "rectangle.expand.vertical" : "rectangle.compress.vertical",
+                      "plus", "gearshape.fill"])
+        row(L("メニューバー", "menu bar"), color: Cat.subtext,
+            L("常駐アイコンのクリックで HUD を隠す／戻す。桃のバッジ＝応答待ち＋承認待ち routine の件数。HUD を隠しているときはホバーでストリップと同じ中身を表示。最小化ボタンの動作（メニューバーに隠れる／ストリップに縮む）は ⚙ で選ぶ",
+              "click the menu-bar icon to hide / show the HUD. Orange badge = sessions needing input + routines awaiting approval. While the HUD is hidden, hover it for the strip's contents. The minimize button's behaviour (hide in the menu bar / shrink to a strip) is set in ⚙"))
 
         // フッター: GitHub リンク
         let sep = NSBox(); sep.boxType = .separator

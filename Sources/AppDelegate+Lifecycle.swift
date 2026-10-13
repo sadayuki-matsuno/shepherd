@@ -106,17 +106,20 @@ extension AppDelegate {
         scrollView.autohidesScrollers = true
         scrollView.scrollerStyle = .overlay   // legacy scrollers would eat width off the fixed board
         scrollView.verticalScrollElasticity = .none
+        // 表示倍率は magnification で掛ける（rebuild が設定）。ピンチで変わらないよう gesture は切る。
+        scrollView.allowsMagnification = false
         scrollView.documentView = doc
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(scrollView)
         // Fixed width in row mode; deactivated in column mode so the stack grows to fit columns.
         stackWidthConstraint = stack.widthAnchor.constraint(equalToConstant: contentWidth - 24)
+        docWidthConstraint = doc.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor)
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: container.topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            doc.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+            docWidthConstraint,
             stack.topAnchor.constraint(equalTo: doc.topAnchor, constant: 12),
             stack.leadingAnchor.constraint(equalTo: doc.leadingAnchor, constant: 12),
             doc.bottomAnchor.constraint(equalTo: stack.bottomAnchor, constant: 12),
@@ -127,12 +130,26 @@ extension AppDelegate {
         // frame autosave gets confused by this multi-display setup, so we identify the
         // display by its stable UUID and remember the position relative to it.
         restorePlacement(size: rect.size)
+        // 表示倍率は基準ディスプレイ（hudLayoutScreen）で決まる。移動で基準が変わったとき・解像度/配置が
+        // 変わったときに組み直す。didChangeScreen（面積最大の画面の変化）ではなく移動で判定するのは、
+        // 基準が左上の画面なので通知と基準がずれるため。rebuild 自身の setFrame は基準を変えないので
+        // ループしない。async は rebuild 内の setFrame から同期で再入させないため。
         NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: panel, queue: .main) {
-            [weak self] _ in self?.savePlacement()
+            [weak self] _ in
+            guard let self else { return }
+            self.savePlacement()
+            if self.hudLayoutScreen() != self.layoutScreen {
+                DispatchQueue.main.async { self.rebuildForScreenChange() }
+            }
+        }
+        NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) {
+            [weak self] _ in DispatchQueue.main.async { self?.rebuildForScreenChange() }
         }
 
         rebuild(rows: nil)
         panel.orderFrontRegardless()
+        // メニューバーアイコンは常駐（DUMP / PROBE は上で exit 済みなので作られない）。
+        setupStatusItem()
 
         if defaults.bool(forKey: "deckEnabled") { enableDeck() }
 
@@ -271,14 +288,34 @@ extension AppDelegate {
     // sessions-registry files are on the FSEvents stream, so hook-less status flips push their
     // own refresh.)
 
+    // ディスプレイ移動・構成変更の rebuild。窓ドラッグの最中（画面を跨いだ瞬間に通知が来る）に
+    // リサイズするとカーソル下で窓が縮んで/fullDisplay なら飛んでドラッグと喧嘩するので、マウスが
+    // 離れるまで待つ。ポップオーバー中も同様に保留する（捨てると盤面が凍っていれば最大30秒、
+    // 旧ディスプレイの倍率・寸法のまま残る）。保留は1本だけ。
+    func rebuildForScreenChange() {
+        // メニューバーに隠している間は待たない（canRebuildNow が偽のままなので保留が延々回る）。
+        // 戻すときの showHUD() が rebuild して倍率を取り直す。
+        if screenRebuildPending || !panel.isVisible { return }
+        guard NSEvent.pressedMouseButtons == 0, canRebuildNow() else {
+            screenRebuildPending = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                self?.screenRebuildPending = false
+                self?.rebuildForScreenChange()
+            }
+            return
+        }
+        rebuild(rows: lastRows)
+    }
+
     // May an async completion rebuild the board right now? Every background repaint asks this —
     // a rebuild recreates every view, which would close an open popover (its anchor goes away),
     // drop the drop-target mid-drag, or destroy the ARTIFACTS search field mid-word. The artifact
     // hold is TIME-based (2s past the last keystroke) rather than currentEditor(): a field that
     // keeps the field editor while the user works elsewhere would suppress every board update
     // indefinitely. One predicate because four hand-copied versions had already drifted apart.
+    // メニューバーに隠している間も組み直さない（showHUD が戻す瞬間に lastRows で rebuild する）。
     func canRebuildNow() -> Bool {
-        replyPopover == nil && repoPickerPopover == nil && dropPopover == nil && helpPopover == nil
+        panel.isVisible && replyPopover == nil && repoPickerPopover == nil && dropPopover == nil && helpPopover == nil
             && Date().timeIntervalSince(lastArtifactTypeAt) > 2.0
             && Date().timeIntervalSince(lastDragAt) > 1.0
     }
@@ -309,6 +346,8 @@ extension AppDelegate {
                 self.lastRows = rows
                 if let disk { self.diskSpace = disk }   // a failed read keeps the last value
                 self.updateReplyWaiting(rows: rows)
+                self.updateSleepAssertions(rows: rows)
+                self.updateStatusItem()   // rebuild が保留されてもメニューバーの数字は止めない
                 if self.canRebuildNow() { self.rebuild(rows: rows) }
                 if self.deck != nil { self.renderDeck() }
                 // The fetch may have discovered a config dir we aren't watching yet (a session
@@ -391,6 +430,7 @@ extension AppDelegate {
                 } else {
                     self.usageError = L("トークンが読めない", "no oauth token")
                 }
+                self.updateStatusItem()   // ホバーパネルのゲージ・チップも追従させる
                 if self.canRebuildNow() { self.rebuild(rows: self.lastRows) }
             }
         }
@@ -428,7 +468,7 @@ extension AppDelegate {
         if !showUsageDashboard { showUsageDashboard = true; defaults.set(true, forKey: "showUsageDashboard") }
         if minimized { minimized = false; defaults.set(false, forKey: "minimized") }
         usageFetchedAt = .distantPast
-        rebuild(rows: lastRows)
+        showHUD()   // メニューバーのホバーパネルから来たときは、隠れている HUD も戻す
         maybeRefreshUsage()
     }
 

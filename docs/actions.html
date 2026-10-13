@@ -191,14 +191,20 @@
     <h2 lang="ja">HUD のサイズと配置</h2>
     <ul lang="en">
       <li><strong>⚙ → HUD size</strong> — <em>auto</em> (fits content), fixed 1 / 2 / 3-column presets, or <em>full display</em>. Fixed sizes scroll vertically.</li>
+      <li><strong>⚙ → Display scale</strong> — shrinks the whole HUD (cards, text, icons, spacing) by one factor. <em>Auto</em> (default) follows the display it sits on: 100% on a 27-inch-class screen (~1400pt tall), stepping down to 90% / 80% on smaller laptop displays (10% steps, never below 80%, never enlarged). Or pin it at 100% / 90% / 80%, or go smaller with 70% / 60%. Dragging the HUD to another display re-scales it there.</li>
       <li><strong>Drag anywhere</strong> — the position is remembered per display.</li>
-      <li><strong>Minimize</strong> — collapses to a small strip that keeps the plan-usage gauges and the count pills (working / needs-input); only the credits column is dropped, and the disk bar stays only from 80% up. Blocked agents still surface.</li>
+      <li><strong>Menu-bar icon</strong> — Shepherd always keeps an icon in the menu bar. Click it to hide the HUD or bring it back (position and size are kept). An orange badge counts everything waiting on you — sessions that need input plus routines waiting for approval — so a hidden HUD still tells you when to look. While the HUD is hidden, hovering the icon drops the minimized strip's contents (compact gauges + count pills; the disk bar only from 80% up) down under it without stealing keyboard focus; its chips are clickable. If the icon is out of sight (e.g. behind the notch), launching Shepherd again brings the HUD back.</li>
+      <li><strong>Minimize</strong> — by default the button hides the HUD into the menu bar. <strong>⚙ → Minimize button → Shrink to a strip</strong> switches it to the older behaviour: a small strip that keeps the plan-usage gauges and the count pills (working / needs-input); only the credits column is dropped, and the disk bar stays only from 80% up. Blocked agents still surface.</li>
+      <li><strong>⚙ → Prevent sleep while sessions work</strong> (on by default) — the Mac won't idle-sleep while any session is working (a background worker whose state can't be read counts for at most 2 hours after its last activity); <strong>Prevent screen lock while sessions work</strong> (off by default, independent) keeps the display awake too, which holds off the idle screen lock. See <a href="configuration.html">Configuration</a>.</li>
       <li><strong>? button</strong> — the in-app legend for every symbol (the same content as <a href="board.html">Reading the board</a>).</li>
     </ul>
     <ul lang="ja">
       <li><strong>⚙ → HUD サイズ</strong> — <em>auto</em>（内容に合わせる）、固定の1/2/3列プリセット、または <em>full display</em>（画面全面）。固定サイズは縦方向にスクロールします。</li>
+      <li><strong>⚙ → 表示倍率</strong> — HUD 全体（カード・文字・アイコン・余白）を同じ倍率で縮めます。<em>自動</em>（既定）は載っているディスプレイに合わせ、27インチ級（高さ約1400pt）で100%、小さいノートの内蔵ディスプレイでは 90% / 80% に下がります（10% 刻み・80%未満にはせず、拡大もしません）。100% / 90% / 80% に固定するか、さらに小さい 70% / 60% も選べます。HUD を別のディスプレイへドラッグすると、移った先で倍率を取り直します。</li>
       <li><strong>どこからでもドラッグ可能</strong> — 位置はディスプレイごとに記憶されます。</li>
-      <li><strong>最小化</strong> — 小さなストリップに折りたたまれますが、プラン使用量のバーと件数ピル（作業中/応答待ち）は残ります（省かれるのはクレジット欄だけ。ディスクバーは80%以上のときだけ残ります）。応答待ちのエージェントは折りたたんでも表示されます。</li>
+      <li><strong>メニューバーアイコン</strong> — Shepherd はメニューバーに常にアイコンを出します。クリックで HUD を隠す／戻す（位置とサイズはそのまま）。応答待ちのセッションと承認待ちの routine の合計が桃色のバッジで出るので、HUD を隠していても見るべきときが分かります。HUD を隠しているときにアイコンにカーソルを載せると、最小化ストリップと同じ中身（コンパクトなゲージと件数ピル。ディスクバーは80%以上のときだけ）が直下に出ます（キーボードフォーカスは奪いません。チップはクリックできます）。アイコンが見えないとき（ノッチの裏に溢れた等）は Shepherd をもう一度起動すると HUD が戻ります。</li>
+      <li><strong>最小化</strong> — 既定ではボタンで HUD がメニューバーに隠れます。<strong>⚙ → 最小化ボタンの動作 → ストリップに縮む</strong>にすると従来の動作になり、小さなストリップに折りたたまれます。プラン使用量のバーと件数ピル（作業中/応答待ち）は残ります（省かれるのはクレジット欄だけ。ディスクバーは80%以上のときだけ残ります）。応答待ちのエージェントは折りたたんでも表示されます。</li>
+      <li><strong>⚙ → 稼働中はスリープさせない</strong>（既定 ON）— 作業中のセッションがある間は Mac がアイドルスリープしません（状態が読めない background worker は最後の活動から最大2時間まで）。<strong>稼働中は画面ロックも防ぐ</strong>（既定 OFF）を併せて ON にするとディスプレイも点いたままになります。<a href="configuration.html">設定</a>を参照。</li>
       <li><strong>?ボタン</strong> — すべてのシンボルのアプリ内凡例（<a href="board.html">盤面の読み方</a>と同じ内容）。</li>
     </ul>
 

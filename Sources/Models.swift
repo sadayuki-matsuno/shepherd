@@ -782,6 +782,46 @@ func removableRecord(_ row: AgentRow) -> String? {
     return shortSessionId(row.sessionId)
 }
 
+// How many rows should keep the Mac from idle-sleeping (the IOKit power assertion; 0 = release it).
+// A working row counts — including a teammate card under an idle lead, which is waiting on it. A
+// live bg worker (pid = still in the daemon) counts unless it is known to be resting: when the daemon
+// abstains its status stays "unknown" (the transcript lags a turn), and it may well be mid-turn.
+// blocked / idle / error are waiting on a human, so the Mac may sleep. An allowlist, not a denylist:
+// statusFromAgentState passes unknown daemon words through verbatim, and a future resting state
+// must fail toward letting the Mac sleep.
+// The benefit of the doubt is capped: an unknown worker whose last activity (the newest of the
+// row's own updatedAt / statusSince — no extra IO) is keepAwakeUnknownWorkerLimit old or more is
+// a parked worker the daemon keeps abstaining on, and must not hold the Mac up all night. Working
+// rows have no cap — a long turn is exactly what the assertion is for.
+let keepAwakeUnknownWorkerLimit: TimeInterval = 2 * 3600
+
+func keepAwakeCount(_ rows: [AgentRow], now: Date = Date()) -> Int {
+    rows.filter { r in
+        if r.status == "working" { return true }
+        guard r.isBackground, r.pid != nil, r.status == "unknown" else { return false }
+        let lastActivity = max(r.updatedAt ?? .distantPast, r.statusSince)
+        return now.timeIntervalSince(lastActivity) < keepAwakeUnknownWorkerLimit
+    }.count
+}
+
+// The menu-bar icon's badge: everything stopped on a human — blocked sessions (the same rows the
+// header's needs-input pill counts, so pass the 24h-filtered board) plus routines stopped at a
+// permission prompt (the ROUTINES section's approval chip). 0 = bare icon.
+func attentionCount(rows: [AgentRow], routines: [Routine]) -> Int {
+    rows.filter { $0.status == "blocked" }.count
+        + routines.filter { $0.liveState == "requires_action" }.count
+}
+
+// What the brand bar's minimize button does (⚙ menu, defaults `minimizeAction`). menuBar hides
+// the HUD entirely (the menu-bar icon brings it back); strip shrinks to the minimized strip.
+enum MinimizeAction: String { case menuBar, strip }
+
+// In menuBar mode the button hides the HUD — but only from the full board. A strip left over from
+// strip mode (`minimized` is persisted) must still expand on the button, or it is a dead end.
+func minimizeButtonHidesHUD(minimized: Bool, action: MinimizeAction) -> Bool {
+    !minimized && action == .menuBar
+}
+
 // A live background worker sitting idle/done is a *parked* process: nobody is looking at it, yet it
 // holds real memory (worker + pty-host ≈ 600MB, measured 2026-07-09) and keeps the cc-daemon and its
 // spare pool alive with it. That's exactly the forgotten waste this board exists to surface — and
@@ -1171,6 +1211,30 @@ func hudPanelWidth(columns: Int, columnWidth: CGFloat, gap: CGFloat, sidePadding
 // パネル幅に横あふれなしで収まる列数（fullDisplay 用）。最低1列。
 func hudFitColumns(panelWidth: CGFloat, columnWidth: CGFloat, gap: CGFloat, sidePadding: CGFloat) -> Int {
     max(1, Int((panelWidth - sidePadding * 2 + gap) / (columnWidth + gap)))
+}
+
+// HUD 表示倍率（盤面全体を一律に縮める — NSScrollView の magnification で掛ける）。defaults
+// `hudScale` の raw 値は百分率。auto はディスプレイの高さから決める。
+enum HUDScaleSetting: String, CaseIterable {
+    case auto, p100 = "100", p90 = "90", p80 = "80", p70 = "70", p60 = "60"
+}
+
+// 表示倍率。手動設定はそのまま（70%・60% は手動だけ — auto の下限 80% より小さくしたいとき用）、auto は載っているディスプレイの visibleFrame 高さの線形写像
+// （約1400pt 級=27インチで100%、内蔵 MBP の ~950pt で80%）を 80%〜100% にクランプし、手動と同じ
+// 10% 刻みに丸める（端数倍率は 1px の罫線がにじむ・Dock の表示/自動非表示で数%揺れるため —
+// Dock 付き 27インチの ~1345pt も 100% に収まる）。拡大はしない。高さ不明（ディスプレイ無し）は100%。
+func hudScale(visibleHeight: CGFloat?, setting: HUDScaleSetting) -> CGFloat {
+    switch setting {
+    case .p100: return 1.0
+    case .p90: return 0.9
+    case .p80: return 0.8
+    case .p70: return 0.7
+    case .p60: return 0.6
+    case .auto:
+        guard let h = visibleHeight else { return 1.0 }
+        let linear = min(1.0, max(0.8, 0.8 + (h - 950) * 0.2 / 450))
+        return (linear * 10).rounded() / 10
+    }
 }
 
 struct StatusStyle {

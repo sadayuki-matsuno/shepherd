@@ -1032,18 +1032,32 @@ extension AppDelegate {
 
     // The panel's target size in the fixed modes; nil in auto (content-fit). Preset heights clamp
     // to the current display so "大" on a small sub-monitor never overhangs.
+    // 論理寸法（表示倍率を掛ける前）で返す — 列数・boardSpanWidth はこの座標系で考え、画面の pt に
+    // 直すのは rebuild の setContentSize 直前だけ。fullDisplay は画面実寸÷倍率＝縮めた分だけ列が増える。
     func fixedPanelSize() -> NSSize? {
+        let scale = appliedScale
         switch hudSizeMode {
         case .auto:
             return nil
         case .fullDisplay:
-            return (screenUnderPanel() ?? NSScreen.main)?.visibleFrame.size
+            return layoutScreen.map {
+                NSSize(width: $0.visibleFrame.width / scale, height: $0.visibleFrame.height / scale)
+            }
         default:
             guard let preset = hudPreset(hudSizeMode) else { return nil }
             let width = hudPanelWidth(columns: preset.columns, columnWidth: columnWidth, gap: 12, sidePadding: 12)
-            let maxHeight = (screenUnderPanel() ?? NSScreen.main)?.visibleFrame.height
-            return NSSize(width: width, height: maxHeight.map { min(preset.height, $0) } ?? preset.height)
+            let maxHeight = layoutScreen?.visibleFrame.height
+            return NSSize(width: width, height: maxHeight.map { min(preset.height, $0 / scale) } ?? preset.height)
         }
+    }
+
+    // 倍率と固定サイズの基準ディスプレイ。fullDisplay は面積最大の画面（そこへ setFrame する）、それ以外は
+    // パネル左上の載る画面 — rebuild は左上固定でリサイズするので、2画面に跨っていても縮んだ結果
+    // 基準が入れ替わって倍率が往復しない。rebuild と didMove 監視（基準が変わったかの判定）で共用。
+    func hudLayoutScreen() -> NSScreen? {
+        let topLeft = NSPoint(x: panel.frame.minX + 1, y: panel.frame.maxY - 1)
+        return (hudSizeMode == .fullDisplay ? nil : NSScreen.screens.first { $0.frame.contains(topLeft) })
+            ?? screenUnderPanel() ?? NSScreen.main
     }
 
     // Width the header / dashboard / hint line span: the board itself in auto, the panel's inner
@@ -1065,11 +1079,36 @@ extension AppDelegate {
     func rebuild(rows: [AgentRow]?) {
         // A hover tip anchored in the OLD view tree must not outlive the swap below.
         hideHoverTip()
+        // 表示倍率（盤面全体を一律に縮める）。基準ディスプレイと倍率をここで1回だけ決め、以降の寸法計算
+        // （fixedPanelSize / boardSpanWidth / fullDisplay の setFrame）はすべて layoutScreen /
+        // appliedScale を読む（基準の選び方は hudLayoutScreen）。
+        // 方式の選定理由: magnification は AppKit 標準のズームなので、ヒットテスト・トラッキング
+        // エリア・ポップオーバーの係留・右クリックメニューが座標変換込みで正しく動き、文字も倍率込みで
+        // 描き直されてにじまない（2026-10-12 プロトで実測）。
+        // 窓ドラッグ中（マウス押下中）は前回の基準を据え置く — 通常の refresh が画面を跨いだ瞬間に
+        // 来ても、カーソル下で窓の倍率が変わらないように。離した後は didMove 監視の保留分が拾う。
+        if layoutScreen == nil || NSEvent.pressedMouseButtons == 0 { layoutScreen = hudLayoutScreen() }
+        let scale = hudScale(visibleHeight: layoutScreen?.visibleFrame.height, setting: hudScaleSetting)
+        if scale != appliedScale {
+            appliedScale = scale
+            scrollView.magnification = scale
+            docWidthConstraint.isActive = false
+            docWidthConstraint = scrollView.documentView!.widthAnchor.constraint(
+                equalTo: scrollView.contentView.widthAnchor, multiplier: 1 / scale)
+            docWidthConstraint.isActive = true
+            // magnification の setter は表示中心を保つので、固定サイズで縦に長い盤面が途中までスクロール
+            // した状態で開く。doc は flipped なので原点＝先頭へ戻す。
+            scrollView.contentView.scroll(to: .zero)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
+        // 論理寸法 → パネルの画面寸法。端数は切り上げ（auto で1px足りずスクロールが出ないように）。
+        func physical(_ s: NSSize) -> NSSize { NSSize(width: ceil(s.width * scale), height: ceil(s.height * scale)) }
         // Build the ENTIRE new view tree first, then swap it in — the old views are removed only
         // once their replacements exist. Teardown-first left the panel empty while construction
         // ran, and any main-thread stall in that window (a subprocess in claudeAccount, say) put
         // a blank HUD on screen for its duration (2026-07-14, caught by frame capture).
         let filtered = rows.map(applyFilter)
+        updateStatusItem()   // 24h フィルタの切替などでもバッジの数は変わる
         // Top-to-bottom: brand bar (logo + account + controls), then the plan-usage gauges, then
         // the two collapsible sections (experimental 2026-07-17): セッション (its bar, then the
         // status row + columns when open) and ARTIFACTS (its bar, then search + inline list).
@@ -1095,7 +1134,7 @@ extension AppDelegate {
             scrollView.verticalScrollElasticity = .none
             stackWidthConstraint.isActive = true
             stack.layoutSubtreeIfNeeded()
-            let size = NSSize(width: contentWidth, height: stack.fittingSize.height + 24)
+            let size = physical(NSSize(width: contentWidth, height: stack.fittingSize.height + 24))
             let top = panel.frame.maxY, x = panel.frame.minX
             panel.setContentSize(size)
             panel.setFrameOrigin(NSPoint(x: x, y: top - panel.frame.height))
@@ -1158,13 +1197,13 @@ extension AppDelegate {
         // visible frame of whichever display the panel sits on — drag it to another monitor and the
         // next rebuild fills that one.
         scrollView.verticalScrollElasticity = hudSizeMode == .auto ? .none : .automatic
-        if hudSizeMode == .fullDisplay, let scr = screenUnderPanel() ?? NSScreen.main {
+        if hudSizeMode == .fullDisplay, let scr = layoutScreen {
             panel.setFrame(scr.visibleFrame, display: true)
             return
         }
         let fitting = NSSize(width: max(contentWidth, stack.fittingSize.width + 24),
                              height: stack.fittingSize.height + 24)
-        let size = fixedPanelSize() ?? fitting
+        let size = physical(fixedPanelSize() ?? fitting)
         let top = panel.frame.maxY
         let x = panel.frame.minX
         panel.setContentSize(size)
